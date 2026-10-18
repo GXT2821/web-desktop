@@ -40,6 +40,8 @@ function createWindow() {
   // 拦截所有 webview 里的 window.open / target=_blank：
   // 拒绝真正弹出新窗口，把 URL 转发给渲染进程，在应用内的标签页里打开。
   win.webContents.on('did-attach-webview', (event, guestWebContents) => {
+    // 后台标签节流：隐藏的 webview 降低渲染/定时器频率，减少 CPU 占用
+    guestWebContents.setBackgroundThrottling(true);
     guestWebContents.setWindowOpenHandler(({ url }) => {
       if (url && url !== 'about:blank') {
         win.webContents.send('open-tab', url);
