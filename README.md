@@ -54,6 +54,29 @@ npm.cmd install
 
 改完 `config.json` 后重启应用即可。
 
+## 如何打包
+
+用一个跨平台脚本统一打包，自动适配操作系统：
+
+```bash
+node scripts/build.js           # 打包当前系统
+node scripts/build.js win       # Windows：NSIS 安装包 + portable 绿色版
+node scripts/build.js mac       # macOS：dmg + zip
+node scripts/build.js linux     # Linux：AppImage + deb
+node scripts/build.js all       # 三端依次打包
+```
+
+等价 npm 命令：`npm run build` / `build:win` / `build:mac` / `build:linux` / `build:all`。
+
+产物在 `dist/` 目录。
+
+**跨平台注意：**
+
+- macOS 的 dmg/签名基本只能在 macOS 上生成；
+- Windows 的 NSIS 在非 Windows 上需要 Wine；
+- Linux 的 deb 建议在 Linux 上构建，AppImage 更通用；
+- 默认使用 Electron 自带图标，可在 `package.json` 的 `build` 里配置 `.ico`(Win) / `.icns`(mac) / png 目录(Linux)。
+
 ## 常见问题
 
 - `npm` 命令报错 → 用 `npm.cmd` 代替 `npm`；
