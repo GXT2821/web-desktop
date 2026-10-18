@@ -6,7 +6,11 @@
   "scripts": {
     "start": "electron .",
     "pack": "electron-builder --dir",
-    "build": "electron-builder --win"
+    "build": "node scripts/build.js",
+    "build:win": "node scripts/build.js win",
+    "build:mac": "node scripts/build.js mac",
+    "build:linux": "node scripts/build.js linux",
+    "build:all": "node scripts/build.js all"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -30,14 +34,15 @@
       "pages/**/*"
     ],
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
+      "target": ["nsis", "portable"]
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility"
     },
     "nsis": {
       "oneClick": false,
