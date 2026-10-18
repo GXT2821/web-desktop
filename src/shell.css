@@ -1,7 +1,8 @@
 :root {
-  --sidebar-bg: #fafafa;
-  --sidebar-border: #e9e9ee;
+  --topbar-bg: #ffffff;
+  --tabbar-bg: #fafafa;
   --content-bg: #ffffff;
+  --border: #e9e9ee;
   --text-primary: #18181b;
   --text-secondary: #52525b;
   --text-muted: #8e8e98;
@@ -17,8 +18,7 @@
 }
 
 html,
-body,
-.app {
+body {
   height: 100%;
 }
 
@@ -26,62 +26,69 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
+  overflow: hidden;
 }
 
 .app {
   display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 
-/* 左侧导航栏 */
-.sidebar {
-  width: 220px;
-  min-width: 220px;
-  height: 100vh;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
+.hidden {
+  display: none !important;
+}
+
+/* ===== 顶部导航栏 ===== */
+.topbar {
   display: flex;
-  flex-direction: column;
-  overflow-y: auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  height: 56px;
+  min-height: 56px;
+  background: var(--topbar-bg);
+  border-bottom: 1px solid var(--border);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 22px 20px;
-  font-size: 16px;
+  gap: 9px;
+  padding-right: 14px;
+  margin-right: 4px;
+  border-right: 1px solid var(--border);
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
 .brand-dot {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
   background: linear-gradient(135deg, #818cf8, var(--accent));
   flex-shrink: 0;
 }
 
 .nav {
-  flex: 1;
-  padding: 8px 12px;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  overflow-x: auto;
 }
 
 .nav-item {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  text-align: left;
-  padding: 10px 14px;
+  padding: 8px 14px;
   background: transparent;
   border: none;
   border-radius: 9px;
   color: var(--text-secondary);
   font-size: 14px;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
@@ -97,16 +104,110 @@ body {
   font-weight: 600;
 }
 
-/* 右侧内容区 */
-.content {
-  flex: 1;
-  height: 100vh;
-  background: var(--content-bg);
+/* ===== 标签页栏 ===== */
+.tabbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  min-height: 42px;
+  background: var(--tabbar-bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-#view {
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px 6px 12px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tab:hover {
+  background: var(--hover);
+}
+
+.tab.active {
+  background: var(--accent-soft);
+  border-color: #d6dbfc;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tab-close:hover {
+  background: #e4e4e7;
+  color: #dc2626;
+}
+
+/* ===== 内容区（webview 层叠，只显示激活项）===== */
+.content {
+  flex: 1;
+  position: relative;
+  background: var(--content-bg);
+  overflow: hidden;
+}
+
+.content webview {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  display: flex;
+  visibility: hidden;
+  z-index: 0;
   border: none;
+  background: #ffffff;
+}
+
+.content webview.active {
+  visibility: visible;
+  z-index: 1;
+}
+
+/* 空状态占位 */
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  z-index: 0;
+}
+
+.placeholder-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.placeholder-sub {
+  font-size: 13px;
 }

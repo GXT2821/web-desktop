@@ -11,15 +11,21 @@
 </head>
 <body>
   <div class="app">
-    <!-- 左侧导航栏 -->
-    <aside class="sidebar">
+    <!-- 顶部导航栏 -->
+    <header class="topbar">
       <div class="brand"><span class="brand-dot"></span>我的应用</div>
       <nav class="nav" id="nav"></nav>
-    </aside>
+    </header>
 
-    <!-- 右侧内容区：用 webview 承载各个页面 -->
-    <main class="content">
-      <webview id="view" src="about:blank"></webview>
+    <!-- 标签页栏 -->
+    <div class="tabbar" id="tabbar"></div>
+
+    <!-- 内容区：每个打开的页面一个 webview -->
+    <main class="content" id="content">
+      <div class="placeholder" id="placeholder">
+        <p class="placeholder-title">还没有打开的页面</p>
+        <p class="placeholder-sub">点击上方菜单打开一个页面</p>
+      </div>
     </main>
   </div>
 
