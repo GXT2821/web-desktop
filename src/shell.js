@@ -71,6 +71,15 @@ function openTab(name, url, navBtn) {
     if (e.title && e.title.trim()) label.textContent = e.title.trim();
   });
 
+  // 拦截「打开新窗口」请求（百度搜索结果 target=_blank / window.open），
+  // 改为在本应用里新开一个标签，否则点击无反应。
+  view.addEventListener('new-window', (e) => {
+    e.preventDefault();
+    if (e.url && e.url !== 'about:blank') {
+      openTab(e.url, e.url, null);
+    }
+  });
+
   tabbar.appendChild(tab);
   content.appendChild(view);
   activateTab(item);
