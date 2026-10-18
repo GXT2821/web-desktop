@@ -1,5 +1,5 @@
 // Electron 主进程：负责创建窗口、读取页面配置
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -44,6 +44,7 @@ function createWindow() {
 ipcMain.handle('get-pages', () => loadPages());
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null); // 移除顶部 File/Edit/View/Window/Help 菜单
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
