@@ -1,0 +1,8 @@
+﻿node_modules/
+dist/
+.idea/
+*.iml
+screenshot.png
+*.log
+.DS_Store
+Thumbs.db

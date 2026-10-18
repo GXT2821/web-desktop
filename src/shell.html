@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self' 'unsafe-inline';"
+  />
+  <title>我的桌面应用</title>
+  <link rel="stylesheet" href="shell.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 左侧导航栏 -->
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-dot"></span>我的应用</div>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+
+    <!-- 右侧内容区：用 webview 承载各个页面 -->
+    <main class="content">
+      <webview id="view" src="about:blank"></webview>
+    </main>
+  </div>
+
+  <script src="shell.js"></script>
+</body>
+</html>
