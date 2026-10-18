@@ -7,6 +7,9 @@ const placeholder = document.getElementById('placeholder');
 
 const tabs = []; // { name, url, navBtn, tab, view }
 
+// 主进程拦截「要开新窗口」请求后，通过 IPC 通知这里 → 在应用内新开标签
+window.api.onOpenTab((url) => openTab(url, url, null));
+
 // 高亮顶部导航中的当前项
 function highlightNav(activeBtn) {
   document
@@ -44,8 +47,8 @@ function openTab(name, url, navBtn) {
   // 每个标签一个 webview
   const view = document.createElement('webview');
   view.setAttribute('src', url);
-  // 必须允许 popup：网页的 target=_blank / window.open 才会触发 new-window 事件，
-  // 否则点击搜索结果这类链接会被静默拦截、毫无反应。
+  // 允许 popup，才能让 window.open / target=_blank 走到主进程的 setWindowOpenHandler
+  //（main.js 里拒绝弹新窗口，并把 URL 转回来新开标签）。
   view.setAttribute('allowpopups', '');
 
   // 标签：标题 + 关闭按钮
@@ -72,15 +75,6 @@ function openTab(name, url, navBtn) {
   // 页面加载出真实标题后，更新标签文字
   view.addEventListener('page-title-updated', (e) => {
     if (e.title && e.title.trim()) label.textContent = e.title.trim();
-  });
-
-  // 拦截「打开新窗口」请求（百度搜索结果 target=_blank / window.open），
-  // 改为在本应用里新开一个标签，否则点击无反应。
-  view.addEventListener('new-window', (e) => {
-    e.preventDefault();
-    if (e.url && e.url !== 'about:blank') {
-      openTab(e.url, e.url, null);
-    }
   });
 
   tabbar.appendChild(tab);

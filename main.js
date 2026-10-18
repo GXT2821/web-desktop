@@ -37,6 +37,17 @@ function createWindow() {
     },
   });
 
+  // 拦截所有 webview 里的 window.open / target=_blank：
+  // 拒绝真正弹出新窗口，把 URL 转发给渲染进程，在应用内的标签页里打开。
+  win.webContents.on('did-attach-webview', (event, guestWebContents) => {
+    guestWebContents.setWindowOpenHandler(({ url }) => {
+      if (url && url !== 'about:blank') {
+        win.webContents.send('open-tab', url);
+      }
+      return { action: 'deny' };
+    });
+  });
+
   win.loadFile(path.join(__dirname, 'src', 'shell.html'));
 }
 
