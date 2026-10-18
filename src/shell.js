@@ -44,6 +44,9 @@ function openTab(name, url, navBtn) {
   // 每个标签一个 webview
   const view = document.createElement('webview');
   view.setAttribute('src', url);
+  // 必须允许 popup：网页的 target=_blank / window.open 才会触发 new-window 事件，
+  // 否则点击搜索结果这类链接会被静默拦截、毫无反应。
+  view.setAttribute('allowpopups', '');
 
   // 标签：标题 + 关闭按钮
   const tab = document.createElement('div');
