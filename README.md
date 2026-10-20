@@ -115,9 +115,17 @@ macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序
 - **外壳 CSP**：`script-src 'self'`（内联脚本已被实测挡住）+ `object-src 'none'` / `base-uri 'none'` / `form-action 'none'`；所有用户数据走 `textContent`，`el()` 不提供 `innerHTML` 入口。
 - **数据文件**：`library.json` 与备份权限为 `0600`，原子写 + 备份 + 损坏留档。
 
-⚠️ **已知风险：Electron 33.4.11 已停止安全更新。** `npm audit` 对该版本报出 38 条公告（含 "webview 可在 Web Worker 中开启 Node 集成"、"沙箱文档通过 window.open 丢失沙箱限制"、"HTTP 重定向进入 file loader" 等 high 级问题），修复版本全部落在 38.8.6 / 39.8.x / 41.10.x，33.x 没有补丁。**建议升级到 Electron 41.x 后重新打包**；升级前请把本应用视为"只打开可信文档链接"的工具。
+运行时为 **Electron 41.10.7**（41.x 是当前维护分支）。升级前 33.4.11 已停止安全更新，`npm audit` 对其报出 38 条公告（含 webview 在 Worker 里开 Node、沙箱文档经 window.open 丢失限制、HTTP 重定向进入 file loader 等 high 级问题）；升级后 `npm audit` 无 high/critical，仅剩构建期依赖（electron-builder 链）的 moderate 条目，这些不进最终产物。
 
 另外仓库不做代码签名与公证：产物在本机可用，分发给他人需自行配置 Developer ID 并公证（见「打包」）。
+
+## 测试
+
+数据层有独立断言（不依赖 Electron），覆盖 URL 协议白名单、字段白名单、标签/长度限制、文件夹 keep/cascade 删除、备份与损坏恢复、文件权限 `0600`、原型污染：
+
+```bash
+npm test        # node --test test/store.test.js
+```
 
 ## 常见问题
 
@@ -144,7 +152,7 @@ macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序
 - **完全离线打包**：把 `.electron-cache` 里的 Electron zip 解开，直接让 electron-builder 用它，不联网也能出包：
 
   ```bash
-  unzip -q .electron-cache/*/electron-v33.4.11-darwin-arm64.zip -d .electron-cache/dist
+  unzip -q .electron-cache/*/electron-v41.10.7-darwin-arm64.zip -d .electron-cache/dist
   ./node_modules/.bin/electron-builder --mac --config.electronDist="$PWD/.electron-cache/dist"
   ```
 
