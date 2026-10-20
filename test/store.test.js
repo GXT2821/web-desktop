@@ -385,3 +385,19 @@ test('snapshot 返回副本：外部改动不影响内部状态', () =>
     assert.notEqual(again.docs[0].title, '被篡改');
     assert.deepEqual(again.docs[0].tags, ['a']);
   }));
+test('加载时收紧权限：外部留下的 0644 文件与 0755 目录会被纠正', { skip: process.platform === 'win32' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docvault-perm-'));
+  const file = path.join(dir, 'library.json');
+  try {
+    fs.writeFileSync(file, JSON.stringify({ version: 1, folders: [], docs: [] }), { mode: 0o644 });
+    fs.chmodSync(dir, 0o755);
+    const store = new Store(file);
+    store.load();
+    const mode = (p) => fs.statSync(p).mode & 0o777;
+    assert.equal(mode(file), 0o600, '数据文件应被收紧到 0600');
+    assert.equal(mode(dir), 0o700, '数据目录应被收紧到 0700');
+  } finally {
+    fs.chmodSync(dir, 0o700);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

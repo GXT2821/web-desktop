@@ -105,6 +105,9 @@ function readWindowState() {
     const raw = JSON.parse(fs.readFileSync(WINDOW_STATE_FILE, 'utf-8'));
     const bounds = { x: raw.x, y: raw.y, width: raw.width, height: raw.height };
     if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return fallback;
+    // 文件被外部改坏时可能给出离谱尺寸，夹到合理区间
+    bounds.width = Math.min(Math.max(Math.round(bounds.width), 640), 8000);
+    bounds.height = Math.min(Math.max(Math.round(bounds.height), 480), 8000);
     // 显示器拔掉后旧坐标可能落在屏幕外，校验一次
     if (Number.isFinite(bounds.x) && Number.isFinite(bounds.y)) {
       const visible = screen.getAllDisplays().some((display) => {
@@ -132,7 +135,13 @@ function watchWindowState(win) {
   const persist = () => {
     if (win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return;
     try {
-      fs.writeFileSync(WINDOW_STATE_FILE, JSON.stringify(win.getNormalBounds()), 'utf-8');
+      // 与 library.json 保持一致：窗口坐标也不该给同机其他用户看
+      fs.writeFileSync(WINDOW_STATE_FILE, JSON.stringify(win.getNormalBounds()), { encoding: 'utf-8', mode: 0o600 });
+      try {
+        fs.chmodSync(WINDOW_STATE_FILE, 0o600); // 已存在的旧文件 mode 不会变，兜底纠正
+      } catch {
+        /* 权限纠正失败可忽略 */
+      }
     } catch (err) {
       console.error(`[window-state] 保存失败: ${err.message}`);
     }
@@ -280,7 +289,8 @@ function registerIpc() {
     return shell.openExternal(url);
   });
   handle('clipboard:write', ({ text } = {}) => {
-    clipboard.writeText(String(text == null ? '' : text));
+    // 加长度上限：写着剪贴板的可能整段链接/备注，避免异常调用把主进程卡住
+    clipboard.writeText(String(text == null ? '' : text).slice(0, 100_000));
     return true;
   });
   handle('store:reveal', () => {
@@ -416,8 +426,6 @@ if (!gotLock) {
     hardenSession(() => BrowserWindow.getAllWindows()[0] || null);
 
     const win = createWindow();
-
-
 
     if (result.recovered !== 'none') {
       const message = result.recovered === 'backup'
