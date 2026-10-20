@@ -1,8 +1,13 @@
 ﻿node_modules/
 dist/
+.npm-cache/
+.electron-cache/
 .idea/
 *.iml
 screenshot.png
 *.log
 .DS_Store
 Thumbs.db
+.tmp-*/
+# 图标构建过程的临时目录（脚本会自行清理，防止中断时残留被提交）
+build/icon.iconset/

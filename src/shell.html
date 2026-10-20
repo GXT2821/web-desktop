@@ -2,33 +2,110 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
+  <!-- webview 元素内部会设置 inline style 来完成布局，因此 style-src 需要允许 inline；
+       外壳自身不注入任何用户数据（全部走 textContent），风险可控。
+       object-src / base-uri / form-action 不会回退到 default-src，需要单独写死，
+       否则一旦有 HTML 注入就能用 <base> 改基址或把表单提交到外部。 -->
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'self'; style-src 'self' 'unsafe-inline';"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none';"
   />
-  <title>我的桌面应用</title>
+  <title>文档库 · 在线文档收藏</title>
   <link rel="stylesheet" href="shell.css" />
 </head>
 <body>
   <div class="app">
-    <!-- 顶部导航栏 -->
-    <header class="topbar">
-      <div class="brand"><span class="brand-dot"></span>我的应用</div>
-      <nav class="nav" id="nav"></nav>
-    </header>
+    <!-- ===== 左侧：搜索 / 视图 / 文件夹树 / 标签 ===== -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">GT</span>
+        <span class="brand-text">
+          <strong>文档库</strong>
+          <em>在线文档收藏</em>
+        </span>
+      </div>
 
-    <!-- 标签页栏 -->
-    <div class="tabbar" id="tabbar"></div>
+      <div class="search">
+        <span class="search-icon" data-icon="search"></span>
+        <input
+          id="search"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="搜索标题 / 链接 / 备注"
+        />
+        <button class="icon-btn" id="searchClear" data-icon="close" title="清空搜索" hidden></button>
+      </div>
 
-    <!-- 内容区：每个打开的页面一个 webview -->
-    <main class="content" id="content">
-      <div class="placeholder" id="placeholder">
-        <p class="placeholder-title">还没有打开的页面</p>
-        <p class="placeholder-sub">点击上方菜单打开一个页面</p>
+      <nav class="sidenav" id="sidenav"></nav>
+
+      <section class="side-section">
+        <header class="side-head">
+          <span>文件夹</span>
+          <button class="icon-btn" id="addFolderBtn" data-icon="folder-plus" title="新建文件夹"></button>
+        </header>
+        <div class="tree" id="folderTree"></div>
+      </section>
+
+      <section class="side-section side-section-tags">
+        <header class="side-head">
+          <span>标签</span>
+          <button class="link-btn" id="clearTagsBtn" hidden>清除</button>
+        </header>
+        <div class="taglist" id="tagList"></div>
+      </section>
+
+      <footer class="side-foot" id="sideFoot"></footer>
+    </aside>
+
+    <!-- ===== 右侧：标签页 + 工具栏 + 内容 ===== -->
+    <main class="main">
+      <div class="tabbar" id="tabbar"></div>
+
+      <div class="webtoolbar" id="webtoolbar" hidden>
+        <button class="icon-btn" id="navBack" data-icon="back" title="后退"></button>
+        <button class="icon-btn" id="navReload" data-icon="reload" title="刷新"></button>
+        <div class="addr" id="addr" title="当前地址"></div>
+        <button class="icon-btn" id="navCopy" data-icon="copy" title="复制链接"></button>
+        <button class="btn-ghost" id="navExternal" data-icon="external">浏览器打开</button>
+      </div>
+
+      <div class="content" id="content">
+        <!-- 文档库列表（固定标签页，不可关闭） -->
+        <section class="view" id="libraryView">
+          <header class="list-head">
+            <div class="list-head-text">
+              <h1 class="list-title" id="listTitle">全部文档</h1>
+              <p class="list-sub" id="listSub"></p>
+            </div>
+            <div class="list-actions">
+              <select class="select" id="sortSelect" title="排序方式">
+                <option value="created_desc">最近添加</option>
+                <option value="created_asc">最早添加</option>
+                <option value="opened_desc">最近打开</option>
+                <option value="title_asc">标题 A→Z</option>
+              </select>
+              <button class="btn-primary" id="addDocBtn" data-icon="plus">添加文档</button>
+            </div>
+          </header>
+
+          <div class="filterbar" id="filterBar" hidden></div>
+
+          <div class="doclist" id="docList"></div>
+        </section>
       </div>
     </main>
   </div>
 
+  <!-- 通用弹窗（表单 / 确认） -->
+  <div class="modal-root" id="modalRoot" hidden>
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal" id="modalBox" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <script src="library.js"></script>
   <script src="shell.js"></script>
 </body>
 </html>
