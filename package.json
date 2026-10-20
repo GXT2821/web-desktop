@@ -49,7 +49,15 @@
       ],
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
-      "artifactName": "DocVault-${version}-${arch}.${ext}"
+      "artifactName": "DocVault-${version}-${arch}.${ext}",
+      "extendInfo": {
+        "CFBundleLocalizations": [
+          "zh-Hans",
+          "zh_CN",
+          "en"
+        ],
+        "CFBundleDevelopmentRegion": "zh-Hans"
+      }
     },
     "linux": {
       "target": [

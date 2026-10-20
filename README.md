@@ -134,6 +134,7 @@ npm test        # node --test test/store.test.js
 
 - **内嵌打不开 / 登录跳转异常**：部分站点（飞书、Google、企业 SSO 等）限制在 Electron 里登录。用卡片上的「用系统浏览器打开」；或者先在内嵌窗口里走一遍登录，Electron 的 session 是持久化的，下次打开仍是登录状态。
 - **页面白屏**：应用内会显示错误页（含错误码），可以直接重试、复制链接或切浏览器。停用（ERR_ABORTED）等正常打断不会报错。
+- **打开的网页是英文**：应用默认把网页语言固定为简体中文（请求头 `Accept-Language: zh-CN`、`navigator.language` 也是 `zh-CN`）。这一步是必需的——electron-builder 会把 Electron 自带的 `.lproj` 本地化目录全部裁掉，macOS 因此把未声明中文的 `.app` 当英文对待，打包版会比开发模式多出一层"英文"。想换语言用 `DOCVAULT_LANG=ja-JP` 之类启动即可。
 - **`npm install` 报 `EPERM ... ~/.npm/_cacache`**：本机 npm 缓存里有 root 属主的文件。不动全局缓存，改用项目内缓存即可：
   ```bash
   npm install --cache ./.npm-cache
