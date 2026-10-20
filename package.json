@@ -1,10 +1,12 @@
 {
-  "name": "web-desktop",
+  "name": "doc-vault",
   "version": "1.0.0",
-  "description": "把多个网页合并成一个桌面应用",
+  "description": "在线文档收藏夹：把散落在浏览器标签里的文档链接长期保存下来",
+  "author": "GT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "icons": "electron scripts/build-icons.js --force-device-scale-factor=1",
     "pack": "electron-builder --dir",
     "build": "node scripts/build.js",
     "build:win": "node scripts/build.js win",
@@ -21,28 +23,31 @@
     "electron-winstaller@5.4.0": true
   },
   "build": {
-    "appId": "com.example.webdesktop",
-    "productName": "我的桌面应用",
+    "appId": "com.gt.docvault",
+    "productName": "文档库",
     "directories": {
       "output": "dist"
     },
     "files": [
       "main.js",
       "preload.js",
-      "config.json",
-      "src/**/*",
-      "pages/**/*"
+      "src/**/*"
     ],
     "win": {
-      "target": ["nsis", "portable"]
+      "target": ["nsis", "portable"],
+      "icon": "build/icon.ico"
     },
     "mac": {
       "target": ["dmg", "zip"],
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "artifactName": "DocVault-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": ["AppImage", "deb"],
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "build/icons",
+      "artifactName": "DocVault-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

@@ -1,84 +1,154 @@
-# web-desktop
+# 文档库（doc-vault）
 
-用 Electron 把多个网页合并成一个桌面应用（左侧导航 + 右侧 `<webview>` 内容区）。
+用 Electron 做的**在线文档收藏夹**：把散落在浏览器标签里的在线文档链接长期存下来，需要时一键在应用内打开。
+
+浏览器关掉标签就找不回来了，收藏夹又容易越堆越乱。这个软件只做一件事——**帮你记住链接**（不抓取网页内容、不做离线快照），并用文件夹树、标签和搜索让它们随时能被找回来。登录态由应用自己保留，常用站点不用反复登录。
+
+## 功能
+
+- **文件夹树**：可任意嵌套，父文件夹视图包含子文件夹的文档；删除文件夹时可选"仅删文件夹（文档移到未分类）"或"连同内容删除"。
+- **标签 + 搜索**：标签跨文件夹标记，多个标签同时满足（AND）；搜索框对标题、链接、备注、标签做多关键词匹配（空格分隔 = AND）。
+- **内置视图**：全部文档 / 星标 / 最近打开 / 未分类。
+- **应用内打开**：每条文档一个标签页，标题栏显示当前地址，可就地后退、刷新、复制链接、切换系统浏览器；隐藏标签不渲染，降低占用。
+- **标题自动补全**：添加时标题可以留空，第一次打开后自动取网页真实标题（只补一次，之后你改过的标题不会被覆盖）。
+- **记录打开次数与最近打开时间**，方便回顾"存了但一直没用"的东西。
+- **数据完全在本地**，一个可读的 JSON 文件，随时备份、迁移、手工编辑。
+
+## 运行
+
+```bash
+npm install     # 首次运行，下载 Electron
+npm start
+```
+
+> Windows 上如果 PowerShell 拦 `npm.ps1`，请用 `npm.cmd`。
+
+## 数据存在哪
+
+| 系统 | 路径 |
+| --- | --- |
+| macOS | `~/Library/Application Support/DocVault/library.json` |
+| Windows | `%APPDATA%\DocVault\library.json` |
+| Linux | `~/.config/DocVault/library.json` |
+
+- 写入采用"临时文件 + 原子替换"，覆盖前会留一份 `library.json.bak`；
+- **主文件损坏时自动回退备份**，并把坏文件改名为 `library.json.corrupt-<时间>` 留档，不会静默丢数据；
+- 侧栏底部「打开数据文件位置」可直接在访达/资源管理器中定位；
+- 想把数据放到 iCloud、移动硬盘或做便携运行，可以用环境变量指定目录：
+  ```bash
+  DOCVAULT_DATA_DIR="/Volumes/U盘/DocVault" npm start
+  ```
+
+## 快捷键
+
+| 快捷键 | 作用 |
+| --- | --- |
+| `Cmd/Ctrl + N` | 添加文档 |
+| `Cmd/Ctrl + F` | 聚焦搜索框 |
+| `Cmd/Ctrl + W` | 关闭当前网页标签（「文档库」标签固定不关） |
+| `Cmd/Ctrl + R` | 刷新当前网页 |
+| `Cmd/Ctrl + 1~9` | 切换到第 N 个标签 |
+| `F12` / `Cmd(Ctrl) + Alt + I` | 打开调试器（焦点在网页里时由主进程转发） |
 
 ## 目录结构
 
 ```
-web-desktop/
-├── main.js          # 主进程：创建窗口、读取页面配置
-├── preload.js       # 安全桥接：暴露 window.api.getPages()
-├── config.json      # ★ 页面清单（在这里增删你的页面）
-├── package.json     # 项目信息 + 启动脚本
+doc-vault/
+├── main.js          主进程：窗口、IPC、webview 策略（UA 清洗 / 弹窗拦截 / 导航白名单）、窗口尺寸记忆
+├── preload.js       安全桥：只暴露 window.api 的具体方法
 ├── src/
-│   ├── shell.html   # 应用外壳（导航 + webview）
-│   ├── shell.css    # 样式
-│   └── shell.js     # 生成导航、切换页面
-└── pages/           # 本地 HTML 页面放这里
-    ├── page1.html
-    └── page2.html
+│   ├── store.js     数据层：library.json 的读写、字段校验、原子写 + 备份 + 损坏恢复
+│   ├── shell.html   外壳结构（侧栏 + 标签栏 + 工具条 + 内容区 + 弹窗）
+│   ├── shell.css    全部样式
+│   ├── library.js   文档库：侧栏视图、文件夹树、标签、搜索、列表、增删改弹窗
+│   └── shell.js     标签页与 webview 管理、错误页、快捷键
+├── build/           图标资源（icon.svg 为设计源，icns/ico/多尺寸 png 为产物）
+└── scripts/
+    ├── build.js         跨平台打包入口
+    └── build-icons.js   图标生成：超椭圆形状 + 三个方案 + 设计评审图
 ```
 
-## 如何运行
+## 应用图标
 
-> 注意：本机 PowerShell 会拦 `npm.ps1`，请用 `npm.cmd`。
+图标是**方案 A · 书签徽章**：靛蓝渐变方块 + 底部书签缺口 + 白色 **GT** 字标（GT 既是个人标识，也让图标在 48px 以上能直接被认出）。
+
+- 画布 1024×1024，图形区 824×824（四周留 100 安全边距），轮廓是 **n=5 超椭圆**（贴近 macOS Big Sur 的 squircle，比普通圆角矩形更"顺"）；
+- 主色沿用应用主题的靛蓝 `#8B93FF → #5B54E8 → #3B32B8`，浅色/深色背景下都够清楚；
+- 侧栏左上角的品牌标记是同一套视觉的 CSS 版（渐变方块 + GT），见 `src/shell.css` 的 `.brand-mark`。
+
+重新生成（改了设计后执行，产物会覆盖 `build/`）：
 
 ```bash
-cd C:\idea_workspace\web-desktop
-npm.cmd install        # 首次运行，下载 Electron
-npm.cmd start          # 启动应用
+npm run icons
 ```
 
-如果 Electron 下载慢，可先设置国内镜像：
+产物：`build/icon.icns`（macOS，含 16→1024 全部 10 个尺寸）、`build/icon.ico`（Windows，7 个尺寸）、`build/icons/*.png`（Linux）、`build/icon.png`（1024，开发期 Dock/窗口图标）、`build/preview.png`（设计评审图：三个方案对比 + 多尺寸观感 + 浅色/深色/Dock 场景）。
+
+想换方案：打开 `scripts/build-icons.js`，把 `CONCEPTS` 里想要的方案标成 `chosen: true`，再跑一次 `npm run icons`。备选方案（B 文档叠层 / C 字标霓虹）的 SVG 也在 `build/concepts/` 里，可以直接拿去改。图标只在打包时用到，`build/` 不会打进应用包。
+
+## 打包
 
 ```bash
-set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
-npm.cmd install
+node scripts/build.js            # 当前系统
+node scripts/build.js win        # Windows：NSIS 安装包 + portable
+node scripts/build.js mac        # macOS：dmg + zip
+node scripts/build.js linux      # Linux：AppImage + deb
+node scripts/build.js all        # 三端依次打包
 ```
 
-## 如何增删页面
+等价 npm 命令：`npm run build` / `build:win` / `build:mac` / `build:linux` / `build:all`，产物在 `dist/`。
 
-编辑 `config.json`：
+macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序」安装）、同名的 `.zip`（绿色版）以及 `dist/mac-arm64/文档库.app`（未压缩的包，可直接运行）。
 
-- **本地页面**（自己写的 HTML，放 `pages/` 目录）：
+打包环境的两点说明：
 
-```json
-{ "name": "我的页面", "type": "local", "file": "pages/mypage.html" }
-```
+- **不打签名**：仓库里的配置不做签名/公证，本机自用没问题；把安装包发给别人，对方打开时会提示"无法验证开发者"，需要右键 →「打开」，或先执行 `xattr -dr com.apple.quarantine /Applications/文档库.app`。要正式分发就得配 Apple Developer ID 证书并做公证。
+- **dmg 需要能创建磁盘映像的环境**：electron-builder 调 `hdiutil` 生成 dmg，在权限受限的沙箱/CI 里会报 `hdiutil: create failed - 操作不被允许`，此时只能拿到 zip（zip 在任何环境都能出）。
 
-- **远程网页**（直接嵌入一个网站）：
+## 安全说明
 
-```json
-{ "name": "百度", "type": "remote", "url": "https://www.baidu.com" }
-```
+信任边界很清晰：**主进程是唯一可信边界**，渲染层只能通过 `window.api` 暴露的固定方法操作数据。
 
-改完 `config.json` 后重启应用即可。
+- **数据校验**：所有写操作都在 `src/store.js` 里做字段白名单校验，链接只接受 `http/https`（`javascript:`、`file:`、`data:` 一律拒绝），文本去控制字符并按上限截断；不抓取网页内容、不存快照。
+- **外壳隔离**：外壳窗口 `contextIsolation: true` + `sandbox: true` + `nodeIntegration: false`；`<webview>` 挂载前会强制清掉 preload、关掉 Node 与 webSecurity；外壳窗口**有导航守卫**，把链接或 HTML 文件拖到窗口上不会再替换外壳页面（否则新页面会继承 preload，直接拿到 `window.api` 读写整个文档库）。
+- **权限与下载**：网页权限默认拒绝，只放行全屏和"复制到剪贴板"两项；网页发起的下载会先暂停并弹窗确认，不会静默往下载目录写文件。
+- **外壳 CSP**：`script-src 'self'`（内联脚本已被实测挡住）+ `object-src 'none'` / `base-uri 'none'` / `form-action 'none'`；所有用户数据走 `textContent`，`el()` 不提供 `innerHTML` 入口。
+- **数据文件**：`library.json` 与备份权限为 `0600`，原子写 + 备份 + 损坏留档。
 
-## 如何打包
+⚠️ **已知风险：Electron 33.4.11 已停止安全更新。** `npm audit` 对该版本报出 38 条公告（含 "webview 可在 Web Worker 中开启 Node 集成"、"沙箱文档通过 window.open 丢失沙箱限制"、"HTTP 重定向进入 file loader" 等 high 级问题），修复版本全部落在 38.8.6 / 39.8.x / 41.10.x，33.x 没有补丁。**建议升级到 Electron 41.x 后重新打包**；升级前请把本应用视为"只打开可信文档链接"的工具。
 
-用一个跨平台脚本统一打包，自动适配操作系统：
-
-```bash
-node scripts/build.js           # 打包当前系统
-node scripts/build.js win       # Windows：NSIS 安装包 + portable 绿色版
-node scripts/build.js mac       # macOS：dmg + zip
-node scripts/build.js linux     # Linux：AppImage + deb
-node scripts/build.js all       # 三端依次打包
-```
-
-等价 npm 命令：`npm run build` / `build:win` / `build:mac` / `build:linux` / `build:all`。
-
-产物在 `dist/` 目录。
-
-**跨平台注意：**
-
-- macOS 的 dmg/签名基本只能在 macOS 上生成；
-- Windows 的 NSIS 在非 Windows 上需要 Wine；
-- Linux 的 deb 建议在 Linux 上构建，AppImage 更通用；
-- 默认使用 Electron 自带图标，可在 `package.json` 的 `build` 里配置 `.ico`(Win) / `.icns`(mac) / png 目录(Linux)。
+另外仓库不做代码签名与公证：产物在本机可用，分发给他人需自行配置 Developer ID 并公证（见「打包」）。
 
 ## 常见问题
 
-- `npm` 命令报错 → 用 `npm.cmd` 代替 `npm`；
-- 某些网站无法嵌入 → 对方设置了 `X-Frame-Options` 拒绝被内嵌，这类网站无法以页面形式放进 webview；
-- 想换窗口标题 → 改 `main.js` 里的 `title` 和 `config.json`/`shell.html` 中的品牌名。
+- **内嵌打不开 / 登录跳转异常**：部分站点（飞书、Google、企业 SSO 等）限制在 Electron 里登录。用卡片上的「用系统浏览器打开」；或者先在内嵌窗口里走一遍登录，Electron 的 session 是持久化的，下次打开仍是登录状态。
+- **页面白屏**：应用内会显示错误页（含错误码），可以直接重试、复制链接或切浏览器。停用（ERR_ABORTED）等正常打断不会报错。
+- **`npm install` 报 `EPERM ... ~/.npm/_cacache`**：本机 npm 缓存里有 root 属主的文件。不动全局缓存，改用项目内缓存即可：
+  ```bash
+  npm install --cache ./.npm-cache
+  ```
+- **Electron 二进制下载慢或失败**：缓存目录也指向工作区，并走国内镜像：
+  ```bash
+  ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
+  electron_config_cache="$PWD/.electron-cache" \
+  npm install --cache ./.npm-cache
+  ```
+- **打包时卡在下载 Electron / 报 `connect ETIMEDOUT …:443`**：electron-builder 默认从 github.com 取 Electron 本体和它自己的工具（dmg-builder 等）。网络不通时走国内镜像：
+
+  ```bash
+  ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
+  ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ \
+  npm run build:mac
+  ```
+
+- **完全离线打包**：把 `.electron-cache` 里的 Electron zip 解开，直接让 electron-builder 用它，不联网也能出包：
+
+  ```bash
+  unzip -q .electron-cache/*/electron-v33.4.11-darwin-arm64.zip -d .electron-cache/dist
+  ./node_modules/.bin/electron-builder --mac --config.electronDist="$PWD/.electron-cache/dist"
+  ```
+
+- **换窗口标题 / 应用名**：改 `main.js` 里的窗口 `title` 与 `package.json` 的 `productName`。数据目录已固定为 `DocVault`，改名不会导致数据"搬家"。同理改 `build.appId`（当前 `com.gt.docvault`）也不会影响数据位置，因为 `userData` 是显式写死的。
+- **启动就报 `Cannot read properties of undefined (reading 'setPath')`**：说明环境里有 `ELECTRON_RUN_AS_NODE=1`，Electron 被当成普通 Node 跑了。用 `env -u ELECTRON_RUN_AS_NODE npm start`，或在启动它的终端里先 `unset ELECTRON_RUN_AS_NODE`。
+- **终端里出现 `Electron Security Warning (Insecure Content-Security-Policy)`**：开发模式对 `file://` 页面的误报（CSP 写在 HTML 的 meta 里，Electron 只检查响应头），打包后不再出现，可以忽略。
+- **`<webview>` 里页面只显示一小条 / 布局错乱**：外壳的 CSP 必须给 `style-src` 留 `'unsafe-inline'`，否则 Electron 给 webview 元素设的内部样式会被拒绝。
