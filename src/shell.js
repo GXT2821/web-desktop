@@ -300,12 +300,47 @@
     }
   }
 
+  // ==================== 侧栏折叠 ====================
+  const SIDEBAR_KEY = 'docvault.sidebarCollapsed';
+
+  function setSidebarCollapsed(collapsed, { persist = true } = {}) {
+    dom.app.classList.toggle('collapsed', collapsed);
+    dom.collapseBtn.title = collapsed ? '展开侧栏' : '折叠侧栏';
+    dom.collapseBtn.setAttribute('aria-label', dom.collapseBtn.title);
+    dom.collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+    if (persist) {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+      } catch {
+        /* 隐私模式等场景下写不了，忽略 */
+      }
+    }
+  }
+
+  function bindSidebar() {
+    dom.app = document.querySelector('.app');
+    dom.collapseBtn = document.getElementById('collapseBtn');
+    dom.collapseBtn.addEventListener('click', () => {
+      setSidebarCollapsed(!dom.app.classList.contains('collapsed'));
+    });
+
+    let stored = null;
+    try {
+      stored = localStorage.getItem(SIDEBAR_KEY);
+    } catch {
+      /* 忽略 */
+    }
+    setSidebarCollapsed(stored === '1', { persist: false });
+  }
+
   // ==================== 快捷键 ====================
   function handleShortcut(key) {
     if (key === 'n') {
       Library.addDocDialog({ folderId: null });
     } else if (key === 'f') {
       activate(libraryTab);
+      // 侧栏收起时搜索框不可见，先展开再聚焦，否则键盘聚焦会落空
+      if (dom.app.classList.contains('collapsed')) setSidebarCollapsed(false);
       Library.focusSearch();
     } else if (key === 'w') {
       if (activeTab && activeTab.kind === 'web') closeTab(activeTab);
@@ -347,6 +382,7 @@
   async function boot() {
     cacheDom();
     Icons.hydrate(document);
+    bindSidebar();
     createLibraryTab();
     activate(libraryTab);
     bindToolbar();

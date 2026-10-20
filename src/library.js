@@ -30,6 +30,7 @@
     alert: '<path d="M12 4.5l8.5 15h-17z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/>',
     'book-open': '<path d="M12 6.6C10.2 5 7.9 4.4 4.5 4.5v12.6c3.4-.1 5.7.5 7.5 2.1 1.8-1.6 4.1-2.2 7.5-2.1V4.5C16.1 4.4 13.8 5 12 6.6z"/><path d="M12 6.6v12.6"/>',
     filter: '<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>',
+    sidebar: '<rect x="3" y="4.6" width="18" height="14.8" rx="2.6"/><path d="M9.4 4.6v14.8"/>',
   };
 
   // 用 hasOwn 而不是直接取值：'__proto__'/'constructor' 之类在原型链上也能取到真值
@@ -269,7 +270,12 @@
     for (const item of items) {
       const active = state.view.type === item.type;
       dom.sidenav.append(
-        el('button', { class: `side-item${active ? ' active' : ''}`, type: 'button', onclick: () => setView(item.type) }, [
+        el('button', {
+            class: `side-item${active ? ' active' : ''}`,
+            type: 'button',
+            title: item.label,
+            onclick: () => setView(item.type),
+          }, [
           iconNode(item.icon),
           el('span', { class: 'label', text: item.label }),
           el('span', { class: 'count', text: String(item.count) }),
