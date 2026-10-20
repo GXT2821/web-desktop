@@ -1,11 +1,12 @@
 {
   "name": "doc-vault",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "在线文档收藏夹：把散落在浏览器标签里的文档链接长期保存下来",
   "author": "GT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test test/store.test.js",
     "icons": "electron scripts/build-icons.js --force-device-scale-factor=1",
     "pack": "electron-builder --dir",
     "build": "node scripts/build.js",
@@ -15,11 +16,11 @@
     "build:all": "node scripts/build.js all"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "^41.10.7",
     "electron-builder": "^26.15.3"
   },
   "allowScripts": {
-    "electron@33.4.11": true,
+    "electron@41.10.7": true,
     "electron-winstaller@5.4.0": true
   },
   "build": {
@@ -34,17 +35,26 @@
       "src/**/*"
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "build/icon.ico"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
       "artifactName": "DocVault-${version}-${arch}.${ext}"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Utility",
       "icon": "build/icons",
       "artifactName": "DocVault-${version}.${ext}"
