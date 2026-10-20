@@ -26,6 +26,13 @@ contextBridge.exposeInMainWorld('api', {
   renameFolder: (id, name) => call('folder:rename', { id, name }),
   deleteFolder: (id, mode) => call('folder:delete', { id, mode }),
 
+  // 下载
+  downloadsList: () => call('downloads:list'),
+  downloadsCancel: (id) => call('downloads:cancel', { id }),
+  downloadsReveal: (id) => call('downloads:reveal', { id }),
+  downloadsOpen: (id) => call('downloads:open', { id }),
+  downloadsClear: () => call('downloads:clear'),
+
   // 系统能力
   openExternal: (url) => call('shell:open-external', { url }),
   copyText: (text) => call('clipboard:write', { text }),
@@ -34,6 +41,16 @@ contextBridge.exposeInMainWorld('api', {
   // 主进程通知：网页里的 window.open 已被拦截，改为应用内新标签
   onOpenTab: (callback) => {
     ipcRenderer.on('open-tab', (_event, payload) => callback(payload && payload.url));
+  },
+  // 下载进度/结果推送
+  onDownloadsChanged: (callback) => {
+    ipcRenderer.on('downloads:changed', (_event, payload) => callback(payload));
+  },
+  onDownloadDone: (callback) => {
+    ipcRenderer.on('downloads:done', (_event, payload) => callback(payload));
+  },
+  onDownloadFailed: (callback) => {
+    ipcRenderer.on('downloads:failed', (_event, payload) => callback(payload));
   },
   // 主进程转发：焦点在网页里时按下的应用级快捷键
   onShortcut: (callback) => {

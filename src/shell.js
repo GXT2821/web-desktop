@@ -300,6 +300,125 @@
     }
   }
 
+  // ==================== 下载 ====================
+  let dlItems = [];
+
+  function formatSize(bytes) {
+    const n = Number(bytes) || 0;
+    if (n <= 0) return '';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  function dlStateText(entry) {
+    if (entry.state === 'progressing') {
+      const done = formatSize(entry.received);
+      const total = formatSize(entry.total);
+      return total ? `下载中 ${done} / ${total}` : `下载中 ${done}`;
+    }
+    if (entry.state === 'completed') return `已完成 · ${formatSize(entry.received) || '已保存'}`;
+    if (entry.state === 'cancelled') return '已取消';
+    return '下载失败';
+  }
+
+  function dlAction(icon, title, onClick) {
+    return el('button', { class: 'icon-btn', type: 'button', title, 'aria-label': title, onclick: onClick }, [
+      Icons.node(icon),
+    ]);
+  }
+
+  function renderDownloads(all) {
+    if (Array.isArray(all)) dlItems = all;
+    const active = dlItems.filter((entry) => entry.state === 'progressing').length;
+    dom.dlBtn.classList.toggle('active', active > 0);
+    dom.dlBadge.hidden = active === 0;
+    dom.dlBadge.textContent = active > 1 ? String(active) : '';
+
+    clear(dom.dlList);
+    if (dlItems.length === 0) {
+      dom.dlList.append(el('p', { class: 'dl-empty', text: '还没有下载记录' }));
+      return;
+    }
+
+    for (const entry of dlItems) {
+      const ops = el('div', { class: 'dl-ops' });
+      if (entry.state === 'progressing') {
+        ops.append(dlAction('close', '取消下载', () => window.api.downloadsCancel(entry.id).catch(noop)));
+      } else if (entry.exists) {
+        ops.append(dlAction('folderOpen', '在访达中显示', () => window.api.downloadsReveal(entry.id).catch(noop)));
+        ops.append(dlAction('external', '打开文件', () => window.api.downloadsOpen(entry.id).catch((err) => Library.toast(err.message, true))));
+      }
+
+      const row = el('div', { class: 'dl-item', title: entry.path || entry.filename }, [
+        el('span', { class: 'dl-name', text: entry.filename }),
+        ops,
+        el('span', { class: `dl-meta${entry.state === 'interrupted' ? ' dl-state-err' : ''}`, text: dlStateText(entry) }),
+      ]);
+
+      if (entry.state === 'progressing') {
+        const bar = el('div', { class: 'dl-bar' }, [el('i')]);
+        const fill = bar.firstElementChild;
+        if (entry.total > 0) {
+          fill.style.width = `${Math.min(100, Math.round((entry.received / entry.total) * 100))}%`;
+        } else {
+          bar.classList.add('indeterminate');
+        }
+        row.append(bar);
+      }
+      dom.dlList.append(row);
+    }
+  }
+
+  const noop = () => {};
+
+  function toggleDownloads(show) {
+    const next = typeof show === 'boolean' ? show : dom.dlPanel.hidden;
+    dom.dlPanel.hidden = !next;
+    dom.dlBtn.setAttribute('aria-expanded', String(next));
+    if (next) {
+      window.api
+        .downloadsList()
+        .then(renderDownloads)
+        .catch(noop);
+    }
+  }
+
+  function bindDownloads() {
+    dom.dlBtn = document.getElementById('dlBtn');
+    dom.dlBadge = document.getElementById('dlBadge');
+    dom.dlPanel = document.getElementById('dlPanel');
+    dom.dlList = document.getElementById('dlList');
+    dom.dlClear = document.getElementById('dlClear');
+
+    dom.dlBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleDownloads();
+    });
+    dom.dlPanel.addEventListener('click', (event) => event.stopPropagation());
+    dom.dlClear.addEventListener('click', () => {
+      window.api
+        .downloadsClear()
+        .then(renderDownloads)
+        .catch((err) => Library.toast(err.message, true));
+    });
+    document.addEventListener('click', () => {
+      if (!dom.dlPanel.hidden) toggleDownloads(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !dom.dlPanel.hidden) toggleDownloads(false);
+    });
+
+    window.api.onDownloadsChanged(renderDownloads);
+    window.api.onDownloadDone(({ filename }) => Library.toast(`已下载 ${filename}`));
+    window.api.onDownloadFailed(({ filename }) => Library.toast(`${filename} 下载失败`, true));
+    window.api
+      .downloadsList()
+      .then(renderDownloads)
+      .catch(noop);
+  }
+
   // ==================== 侧栏折叠 ====================
   const SIDEBAR_KEY = 'docvault.sidebarCollapsed';
 
@@ -383,6 +502,7 @@
     cacheDom();
     Icons.hydrate(document);
     bindSidebar();
+    bindDownloads();
     createLibraryTab();
     activate(libraryTab);
     bindToolbar();
