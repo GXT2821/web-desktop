@@ -8,6 +8,17 @@ const fs = require('fs');
 const path = require('path');
 const { Store } = require('./src/store');
 
+// 界面与网页语言：默认简体中文。
+// 打包后的 .app 如果没声明中文本地化，macOS 会把进程语言判成 en-US，
+// navigator.language / Accept-Language 于是变成英文，文档站就整页英文。
+// 这里显式指定（必须在 app ready 前），不依赖系统语言；需要别的语言用 DOCVAULT_LANG 覆盖。
+const APP_LANG = process.env.DOCVAULT_LANG || 'zh-CN';
+app.commandLine.appendSwitch('lang', APP_LANG);
+app.commandLine.appendSwitch(
+  'accept-lang',
+  `${APP_LANG},${APP_LANG.split('-')[0]};q=0.9,en;q=0.8`
+);
+
 // 固定数据目录：即使以后改 productName，数据也不会"搬家"
 // 可用 DOCVAULT_DATA_DIR 覆盖，便于把数据放到 iCloud / 移动硬盘或做便携运行
 const DATA_DIR = process.env.DOCVAULT_DATA_DIR

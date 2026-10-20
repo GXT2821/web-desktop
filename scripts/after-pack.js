@@ -17,7 +17,21 @@
  */
 
 const { execFileSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
+
+// macOS 靠 .lproj 目录 + Info.plist 的 CFBundleLocalizations 判断应用支持哪些语言。
+// electron-builder 打包时会把 Electron 自带的 55 个 .lproj 全部裁掉，Info.plist 也没声明，
+// 结果系统按英文对待应用：app.getLocale() 与 navigator.language 都变成 en-US，文档站整页英文。
+// 这里把中文/英文的本地化目录补回去（目录内容可以为空，界面文案在 resources.pak 里）。
+const LOCALIZATIONS = ['zh-Hans.lproj', 'zh_CN.lproj', 'en.lproj'];
+
+function ensureLocalizations(appPath) {
+  const resources = path.join(appPath, 'Contents', 'Resources');
+  for (const name of LOCALIZATIONS) {
+    fs.mkdirSync(path.join(resources, name), { recursive: true });
+  }
+}
 
 // 注意 CLI 用的是 PascalCase 的 fuse 名
 const FUSES = {
@@ -43,6 +57,9 @@ exports.default = async function afterPack(context) {
     context.appOutDir,
     `${context.packager.appInfo.productFilename}.app`
   );
+
+  // 本地化目录要在签名之前补，否则又会把签名改坏
+  ensureLocalizations(appPath);
 
   if (!isSigned(appPath)) {
     const args = ['write', '--app', appPath, ...Object.entries(FUSES).map(([k, v]) => `${k}=${v}`)];
