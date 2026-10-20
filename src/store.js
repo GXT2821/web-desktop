@@ -114,6 +114,7 @@ class Store {
   load() {
     const existed = fs.existsSync(this.file);
     const primary = this.#readFile(this.file);
+    this.#tighten(); // 旧版本或手动拷贝可能留下 0644，载入时纠正一次
     if (primary.ok) {
       this.data = primary.data;
       return { recovered: 'none' };
@@ -146,6 +147,22 @@ class Store {
     } catch (err) {
       console.error(`[store] 读取失败 ${file}: ${err.message}`);
       return { ok: false };
+    }
+  }
+
+  // 把目录与数据文件的权限收紧到 0700 / 0600（尽力而为，失败不影响功能）
+  #tighten() {
+    const targets = [
+      [path.dirname(this.file), 0o700],
+      [this.file, 0o600],
+      [this.backupFile, 0o600],
+    ];
+    for (const [target, mode] of targets) {
+      try {
+        if (fs.existsSync(target)) fs.chmodSync(target, mode);
+      } catch {
+        /* 只读文件系统等场景下忽略 */
+      }
     }
   }
 

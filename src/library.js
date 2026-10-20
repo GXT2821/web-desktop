@@ -32,7 +32,8 @@
     filter: '<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>',
   };
 
-  const svgMarkup = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+  // 用 hasOwn 而不是直接取值：'__proto__'/'constructor' 之类在原型链上也能取到真值
+  const svgMarkup = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${Object.hasOwn(ICONS, name) ? ICONS[name] : ''}</svg>`;
 
   function iconNode(name) {
     const template = document.createElement('template');
@@ -44,7 +45,7 @@
   function hydrateIcons(root) {
     root.querySelectorAll('[data-icon]').forEach((holder) => {
       const name = holder.getAttribute('data-icon');
-      if (!name || !ICONS[name]) return;
+      if (!name || !Object.hasOwn(ICONS, name)) return;
       holder.removeAttribute('data-icon');
       holder.prepend(iconNode(name));
     });

@@ -113,7 +113,7 @@ macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序
 - **外壳隔离**：外壳窗口 `contextIsolation: true` + `sandbox: true` + `nodeIntegration: false`；`<webview>` 挂载前会强制清掉 preload、关掉 Node 与 webSecurity；外壳窗口**有导航守卫**，把链接或 HTML 文件拖到窗口上不会再替换外壳页面（否则新页面会继承 preload，直接拿到 `window.api` 读写整个文档库）。
 - **权限与下载**：网页权限默认拒绝，只放行全屏和"复制到剪贴板"两项；网页发起的下载会先暂停并弹窗确认，不会静默往下载目录写文件。
 - **外壳 CSP**：`script-src 'self'`（内联脚本已被实测挡住）+ `object-src 'none'` / `base-uri 'none'` / `form-action 'none'`；所有用户数据走 `textContent`，`el()` 不提供 `innerHTML` 入口。
-- **数据文件**：`library.json` 与备份权限为 `0600`，原子写 + 备份 + 损坏留档。
+- **数据文件**：数据目录 `0700`、`library.json` 与备份 `0600`（每次启动会把历史遗留的 0644 一并纠正，见 `Store#tighten`），原子写 + 备份 + 损坏留档。
 
 运行时为 **Electron 41.10.7**（41.x 是当前维护分支）。升级前 33.4.11 已停止安全更新，`npm audit` 对其报出 38 条公告（含 webview 在 Worker 里开 Node、沙箱文档经 window.open 丢失限制、HTTP 重定向进入 file loader 等 high 级问题）；升级后 `npm audit` 无 high/critical，仅剩构建期依赖（electron-builder 链）的 moderate 条目，这些不进最终产物。
 
