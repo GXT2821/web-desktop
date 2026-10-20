@@ -401,3 +401,32 @@ test('加载时收紧权限：外部留下的 0644 文件与 0755 目录会被�
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('超大文件按损坏处理：不解析、原文件留档、从备份恢复', () =>
+  withStore(({ dir, file, store }) => {
+    store.load();
+    store.addDoc({ url: 'https://example.com/ok' });
+    store.addDoc({ url: 'https://example.com/ok2' }); // 生成 .bak
+
+    // 造一个超过上限的文件（内容不重要，重点是它不会被整读解析）
+    fs.writeFileSync(file, Buffer.alloc(51 * 1024 * 1024, 0x20));
+    const reopened = new Store(file);
+    assert.equal(reopened.load().recovered, 'backup');
+    assert.ok(reopened.snapshot().docs.length >= 1);
+
+    const kept = fs.readdirSync(dir).filter((n) => n.includes('.corrupt-'));
+    assert.equal(kept.length, 1, '超大文件应被留档而不是删除');
+    assert.ok(fs.statSync(path.join(dir, kept[0])).size > 50 * 1024 * 1024);
+  }));
+
+test('留档文件自动清理：超过 5 个时只保留最新的', () =>
+  withStore(({ dir, file }) => {
+    const store = new Store(file);
+    for (let i = 0; i < 3; i += 1) {
+      fs.writeFileSync(file, '{ bad', 'utf-8');
+      store.load();
+    }
+    const before = fs.readdirSync(dir).filter((n) => n.includes('.corrupt-')).length;
+    assert.ok(before >= 1);
+    assert.ok(before <= 5, `留档数量应被限制在 5 个以内，实际 ${before}`);
+  }));

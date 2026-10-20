@@ -14,6 +14,13 @@ const DATA_DIR = process.env.DOCVAULT_DATA_DIR
   ? path.resolve(process.env.DOCVAULT_DATA_DIR)
   : path.join(app.getPath('appData'), 'DocVault');
 app.setPath('userData', DATA_DIR);
+// 目录必须自己建：Chromium 的单实例锁要往这里写 SingletonLock，
+// 目录不存在时锁会静默失败，两个实例同时写同一个 library.json 就会互相覆盖。
+try {
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+} catch (err) {
+  console.error(`[startup] 创建数据目录失败: ${err.message}`);
+}
 
 const store = new Store(path.join(DATA_DIR, 'library.json'));
 const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
@@ -53,7 +60,10 @@ function isOpenable(url) {
 const { buildCleanUA } = require('./src/user-agent');
 
 // 开发调试快捷键：F12 或 Cmd/Ctrl+Shift+I 打开对应页面的调试器
+// 打包后默认关闭（release 里开着调试器等于把脚本执行入口摆在界面上），
+// 需要排查时用 DOCVAULT_DEVTOOLS=1 启动。
 function bindDevtools(contents, event, input) {
+  if (app.isPackaged && process.env.DOCVAULT_DEVTOOLS !== '1') return;
   if (input.type !== 'keyDown') return;
   const mod = process.platform === 'darwin' ? input.meta : input.control;
   const key = String(input.key || '').toLowerCase();
@@ -318,13 +328,24 @@ function hardenSession(getWindow) {
   });
   ses.setPermissionCheckHandler((_webContents, permission) => ALLOWED_PERMISSIONS.has(permission));
 
-  // 下载：网页发起的下载先暂停并询问，避免文档页悄悄往下载目录写文件
+  // 下载：网页发起的下载先暂停并询问，避免文档页悄悄往下载目录写文件。
+  // 同一时刻只允许一个确认框，且 3 秒内只问一次——否则页面循环触发下载
+  // 就能一直弹模态框（骚扰，不需要任何权限）。
+  let pendingPrompt = null;
+  let lastPromptAt = 0;
+  const PROMPT_COOLDOWN = 3000;
   ses.on('will-download', (event, item, webContents) => {
     const from = webContents && webContents.getURL ? webContents.getURL() : '';
     const filename = path.basename(String(item.getFilename() || 'download'));
 
     // 外壳自身不应该产生下载，直接丢弃
     if (isShellUrl(from)) {
+      item.cancel();
+      return;
+    }
+
+    if (pendingPrompt || Date.now() - lastPromptAt < PROMPT_COOLDOWN) {
+      console.warn(`[security] 已丢弃下载请求（确认框未关闭或触发过频）: ${filename}`);
       item.cancel();
       return;
     }
@@ -336,6 +357,7 @@ function hardenSession(getWindow) {
       /* 保持原样展示 */
     }
 
+    lastPromptAt = Date.now();
     try {
       item.pause();
     } catch {
@@ -352,6 +374,7 @@ function hardenSession(getWindow) {
     };
     const win = getWindow();
     const asked = win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box);
+    pendingPrompt = asked;
     asked
       .then(({ response }) => {
         if (response === 1) {
@@ -361,7 +384,10 @@ function hardenSession(getWindow) {
           item.cancel();
         }
       })
-      .catch(() => item.cancel());
+      .catch(() => item.cancel())
+      .finally(() => {
+        pendingPrompt = null;
+      });
   });
 }
 
