@@ -69,7 +69,31 @@
 
     <!-- ===== 右侧：标签页 + 工具栏 + 内容 ===== -->
     <main class="main">
-      <div class="tabbar" id="tabbar"></div>
+      <div class="tabbar">
+        <div class="tabs" id="tabbar"></div>
+        <div class="tab-actions">
+          <button
+            class="icon-btn dl-btn"
+            id="dlBtn"
+            type="button"
+            data-icon="download"
+            title="下载"
+            aria-label="下载"
+            aria-expanded="false"
+          >
+            <span class="dl-badge" id="dlBadge" hidden></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 下载面板（挂在主区右上角，绝对定位，不占布局） -->
+      <div class="dl-panel" id="dlPanel" hidden>
+        <header class="dl-head">
+          <strong>下载</strong>
+          <button class="link-btn" id="dlClear" type="button">清除已结束</button>
+        </header>
+        <div class="dl-list" id="dlList"></div>
+      </div>
 
       <div class="webtoolbar" id="webtoolbar" hidden>
         <button class="icon-btn" id="navBack" data-icon="back" title="后退"></button>

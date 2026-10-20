@@ -94,6 +94,7 @@ svg {
 }
 
 .main {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -627,13 +628,29 @@ svg {
 .tabbar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 8px 12px;
   min-height: 46px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+}
+
+/* 标签多的时候只让标签区横向滚动，下载按钮固定在右侧 */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+.tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .tab {
@@ -1282,3 +1299,144 @@ svg {
     transform: translateY(6px);
   }
 }
+/* ===== 下载 ===== */
+.dl-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  color: var(--text-2);
+}
+
+.dl-btn:hover {
+  color: var(--text);
+}
+
+/* 有进行中的下载时高亮 */
+.dl-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dl-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-panel {
+  position: absolute;
+  top: 50px;
+  right: 12px;
+  z-index: 60;
+  width: 380px;
+  max-width: calc(100% - 24px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(24, 24, 48, 0.16);
+  overflow: hidden;
+}
+
+.dl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.dl-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.dl-empty {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.dl-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+}
+
+.dl-item:hover {
+  background: var(--hover);
+}
+
+.dl-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dl-meta {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-ops {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.dl-ops .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+
+.dl-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.dl-bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.dl-bar.indeterminate > i {
+  width: 35% !important;
+  animation: dl-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes dl-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.dl-state-ok { color: var(--text-3); }
+.dl-state-err { color: #c0392b; }

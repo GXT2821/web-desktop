@@ -7,6 +7,7 @@ const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, session, screen, di
 const fs = require('fs');
 const path = require('path');
 const { Store } = require('./src/store');
+const { Downloads } = require('./src/downloads');
 
 // 界面与网页语言：默认简体中文。
 // 打包后的 .app 如果没声明中文本地化，macOS 会把进程语言判成 en-US，
@@ -34,6 +35,20 @@ try {
 }
 
 const store = new Store(path.join(DATA_DIR, 'library.json'));
+
+// 给所有窗口广播（下载进度、完成、失败）
+function broadcastToWindows(channel, payload) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  }
+}
+
+// 下载记录与管理（不含流式内容，只记元数据）
+const downloads = new Downloads({
+  dataDir: DATA_DIR,
+  getWindow: () => BrowserWindow.getAllWindows()[0] || null,
+  broadcast: broadcastToWindows,
+});
 const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
 // 开发期窗口/Dock 图标；打包后由 .app 的 icns、exe 内嵌图标接管（build/ 不随包分发）
 const DEV_ICON = path.join(__dirname, 'build', 'icon.png');
@@ -319,6 +334,14 @@ function registerIpc() {
     else shell.openPath(DATA_DIR);
     return true;
   });
+
+  // ---------- 下载 ----------
+  handle('downloads:list', () => downloads.snapshot());
+  handle('downloads:cancel', ({ id } = {}) => downloads.cancel(id));
+  handle('downloads:reveal', ({ id } = {}) => downloads.reveal(id));
+  handle('downloads:open', ({ id } = {}) => downloads.open(id));
+  handle('downloads:clear', () => downloads.clearFinished());
+
 }
 
 // ---------- 会话级加固（权限 / 下载） ----------
@@ -339,66 +362,17 @@ function hardenSession(getWindow) {
   });
   ses.setPermissionCheckHandler((_webContents, permission) => ALLOWED_PERMISSIONS.has(permission));
 
-  // 下载：网页发起的下载先暂停并询问，避免文档页悄悄往下载目录写文件。
-  // 同一时刻只允许一个确认框，且 3 秒内只问一次——否则页面循环触发下载
-  // 就能一直弹模态框（骚扰，不需要任何权限）。
-  let pendingPrompt = null;
-  let lastPromptAt = 0;
-  const PROMPT_COOLDOWN = 3000;
+  // 下载：网页发起的下载直接存到下载目录，并在界面上出现一条可追踪的记录。
+  // 不用弹窗确认（点了没反应、页面循环触发还能刷屏），改由 Downloads 做并发与频率限制。
   ses.on('will-download', (event, item, webContents) => {
     const from = webContents && webContents.getURL ? webContents.getURL() : '';
-    const filename = path.basename(String(item.getFilename() || 'download'));
 
     // 外壳自身不应该产生下载，直接丢弃
     if (isShellUrl(from)) {
       item.cancel();
       return;
     }
-
-    if (pendingPrompt || Date.now() - lastPromptAt < PROMPT_COOLDOWN) {
-      console.warn(`[security] 已丢弃下载请求（确认框未关闭或触发过频）: ${filename}`);
-      item.cancel();
-      return;
-    }
-
-    let host = from;
-    try {
-      host = new URL(from).hostname;
-    } catch {
-      /* 保持原样展示 */
-    }
-
-    lastPromptAt = Date.now();
-    try {
-      item.pause();
-    } catch {
-      /* 少数下载不支持暂停，继续走询问流程 */
-    }
-
-    const box = {
-      type: 'question',
-      buttons: ['取消', '下载'],
-      defaultId: 0,
-      cancelId: 0,
-      message: '网页请求下载文件',
-      detail: `${filename}\n来自 ${host}`,
-    };
-    const win = getWindow();
-    const asked = win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box);
-    pendingPrompt = asked;
-    asked
-      .then(({ response }) => {
-        if (response === 1) {
-          item.resume();
-        } else {
-          console.warn(`[security] 用户取消下载: ${filename} ← ${host}`);
-          item.cancel();
-        }
-      })
-      .catch(() => item.cancel())
-      .finally(() => {
-        pendingPrompt = null;
-      });
+    downloads.register(item, webContents);
   });
 }
 
