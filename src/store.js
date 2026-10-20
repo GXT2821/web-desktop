@@ -11,6 +11,9 @@ const path = require('path');
 
 const SCHEMA_VERSION = 1;
 
+// 单个库文件的体积上限（超过视为损坏，原文件留档不删）
+const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
 const LIMITS = {
   title: 200,
   url: 2000,
@@ -141,6 +144,13 @@ class Store {
   #readFile(file) {
     try {
       if (!fs.existsSync(file)) return { ok: false };
+      // 超大文件先拦下：正常库几 MB 就到头了，超过上限多半是文件被写坏。
+      // 按"读不了"处理而不是硬解析，原文件会被留档，不会丢数据。
+      const size = fs.statSync(file).size;
+      if (size > MAX_FILE_BYTES) {
+        console.error(`[store] 文件过大，按损坏处理 ${file} (${size} 字节)`);
+        return { ok: false };
+      }
       const raw = fs.readFileSync(file, 'utf-8');
       if (!raw.trim()) return { ok: false };
       return { ok: true, data: this.#sanitize(JSON.parse(raw)) };
@@ -170,8 +180,23 @@ class Store {
     try {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       fs.renameSync(file, `${file}.corrupt-${stamp}`);
+      this.#pruneQuarantined();
     } catch (err) {
       console.error(`[store] 留档坏文件失败: ${err.message}`);
+    }
+  }
+
+  // 留档文件只保留最近 5 个，避免反复损坏时把目录撑大
+  #pruneQuarantined(keep = 5) {
+    try {
+      const dir = path.dirname(this.file);
+      const prefix = `${path.basename(this.file)}.corrupt-`;
+      const files = fs.readdirSync(dir).filter((name) => name.startsWith(prefix)).sort();
+      for (const name of files.slice(0, Math.max(0, files.length - keep))) {
+        fs.rmSync(path.join(dir, name), { force: true });
+      }
+    } catch (err) {
+      console.error(`[store] 清理留档文件失败: ${err.message}`);
     }
   }
 

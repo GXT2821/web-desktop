@@ -102,7 +102,7 @@ macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序
 
 打包环境的两点说明：
 
-- **不打签名**：仓库里的配置不做签名/公证，本机自用没问题；把安装包发给别人，对方打开时会提示"无法验证开发者"，需要右键 →「打开」，或先执行 `xattr -dr com.apple.quarantine /Applications/文档库.app`。要正式分发就得配 Apple Developer ID 证书并做公证。
+- **只做 ad-hoc 签名**：打包时 `scripts/after-pack.js` 会补一次 ad-hoc 签名（`codesign -s -`），保证翻转 fuses 后产物在本机能正常启动；这**不等于**正式分发签名——把安装包发给别人，对方打开时仍会提示"无法验证开发者"，需要右键 →「打开」，或先执行 `xattr -dr com.apple.quarantine /Applications/文档库.app`。要正式分发得配 Apple Developer ID 证书并公证，届时脚本检测到有效签名会自动跳过，不会覆盖。
 - **dmg 需要能创建磁盘映像的环境**：electron-builder 调 `hdiutil` 生成 dmg，在权限受限的沙箱/CI 里会报 `hdiutil: create failed - 操作不被允许`，此时只能拿到 zip（zip 在任何环境都能出）。
 
 ## 安全说明
@@ -111,9 +111,12 @@ macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序
 
 - **数据校验**：所有写操作都在 `src/store.js` 里做字段白名单校验，链接只接受 `http/https`（`javascript:`、`file:`、`data:` 一律拒绝），文本去控制字符并按上限截断；不抓取网页内容、不存快照。
 - **外壳隔离**：外壳窗口 `contextIsolation: true` + `sandbox: true` + `nodeIntegration: false`；`<webview>` 挂载前会强制清掉 preload、关掉 Node 与 webSecurity；外壳窗口**有导航守卫**，把链接或 HTML 文件拖到窗口上不会再替换外壳页面（否则新页面会继承 preload，直接拿到 `window.api` 读写整个文档库）。
-- **权限与下载**：网页权限默认拒绝，只放行全屏和"复制到剪贴板"两项；网页发起的下载会先暂停并弹窗确认，不会静默往下载目录写文件。
+- **权限与下载**：网页权限默认拒绝，只放行全屏和"复制到剪贴板"两项；网页发起的下载会先暂停并弹窗确认，且**同一时刻只允许一个确认框、3 秒内只问一次**，页面循环触发下载也无法刷屏。
 - **外壳 CSP**：`script-src 'self'`（内联脚本已被实测挡住）+ `object-src 'none'` / `base-uri 'none'` / `form-action 'none'`；所有用户数据走 `textContent`，`el()` 不提供 `innerHTML` 入口。
-- **数据文件**：数据目录 `0700`、`library.json` 与备份 `0600`（每次启动会把历史遗留的 0644 一并纠正，见 `Store#tighten`），原子写 + 备份 + 损坏留档。
+- **数据文件**：数据目录 `0700`、`library.json` 与备份 `0600`（每次启动会把历史遗留的 0644 一并纠正，见 `Store#tighten`），原子写 + 备份 + 损坏留档；留档的 `.corrupt-*` 只保留最近 5 个。超大文件（>50 MB）按损坏处理，原文件留档而不是硬解析。
+- **启动即建数据目录**：Chromium 的单实例锁要往数据目录写 `SingletonLock`，目录不存在时锁会静默失败（两个实例会互相覆盖库文件），所以启动第一件事就是建目录。
+- **打包产物加固（fuses）**：`RunAsNode` / `NODE_OPTIONS` / `--inspect` 全部关闭，只从 `app.asar` 加载。翻转 fuses 会改写二进制，Apple Silicon 上必须重签才能运行，因此 `scripts/after-pack.js` 在打包时自动补一次 ad-hoc 签名（配了 Developer ID 就会跳过，不会覆盖正式签名）。
+- **调试器**：`F12` / `Cmd+Shift+I` 只在开发模式生效；打包版默认关闭（发布版里开着调试器等于把脚本执行入口摆在界面上），排查时用 `DOCVAULT_DEVTOOLS=1` 启动。
 
 运行时为 **Electron 41.10.7**（41.x 是当前维护分支）。升级前 33.4.11 已停止安全更新，`npm audit` 对其报出 38 条公告（含 webview 在 Worker 里开 Node、沙箱文档经 window.open 丢失限制、HTTP 重定向进入 file loader 等 high 级问题）；升级后 `npm audit` 无 high/critical，仅剩构建期依赖（electron-builder 链）的 moderate 条目，这些不进最终产物。
 
@@ -157,6 +160,7 @@ npm test        # node --test test/store.test.js
   ```
 
 - **换窗口标题 / 应用名**：改 `main.js` 里的窗口 `title` 与 `package.json` 的 `productName`。数据目录已固定为 `DocVault`，改名不会导致数据"搬家"。同理改 `build.appId`（当前 `com.gt.docvault`）也不会影响数据位置，因为 `userData` 是显式写死的。
-- **启动就报 `Cannot read properties of undefined (reading 'setPath')`**：说明环境里有 `ELECTRON_RUN_AS_NODE=1`，Electron 被当成普通 Node 跑了。用 `env -u ELECTRON_RUN_AS_NODE npm start`，或在启动它的终端里先 `unset ELECTRON_RUN_AS_NODE`。
+- **启动就报 `Cannot read properties of undefined (reading 'setPath')`**：说明环境里有 `ELECTRON_RUN_AS_NODE=1`，Electron 被当成普通 Node 跑了。这只影响开发模式（`npm start`）：打包版已经把 `RunAsNode` fuse 关掉，会忽略该环境变量。开发时用 `env -u ELECTRON_RUN_AS_NODE npm start`，或在终端里先 `unset ELECTRON_RUN_AS_NODE`。
+- **打包版双击没反应 / 日志里 `Killed: 9`**：二进制被改过（翻 fuses、改 Info.plist）而没重签，Apple Silicon 会直接杀掉进程。仓库的 `scripts/after-pack.js` 已自动补 ad-hoc 签名；如果你手动改过 fuses 配置，请重新跑一次打包，别只替换 `.app` 里的文件。
 - **终端里出现 `Electron Security Warning (Insecure Content-Security-Policy)`**：开发模式对 `file://` 页面的误报（CSP 写在 HTML 的 meta 里，Electron 只检查响应头），打包后不再出现，可以忽略。
 - **`<webview>` 里页面只显示一小条 / 布局错乱**：外壳的 CSP 必须给 `style-src` 留 `'unsafe-inline'`，否则 Electron 给 webview 元素设的内部样式会被拒绝。
