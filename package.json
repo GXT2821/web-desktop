@@ -57,7 +57,8 @@
           "en"
         ],
         "CFBundleDevelopmentRegion": "zh-Hans"
-      }
+      },
+      "identity": null
     },
     "linux": {
       "target": [

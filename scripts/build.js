@@ -18,6 +18,24 @@
 
 const { spawnSync } = require('child_process');
 
+// Electron 运行时（100MB+ 压缩包）默认从国内镜像取。
+// 原因：github.com 的 DNS 在部分网络下会偶发 ENOTFOUND，一失败整个打包就中断；
+// 镜像同时提供三端产物，不影响 win/linux 打包。
+// 需要回官方源：ELECTRON_MIRROR=https://github.com/electron/electron/releases/download/ npm run build
+if (!process.env.ELECTRON_MIRROR) {
+  process.env.ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/';
+  console.log(`Electron 镜像：${process.env.ELECTRON_MIRROR}（可用 ELECTRON_MIRROR 覆盖）`);
+}
+
+// Electron 运行时（~120MB）缓存放在仓库里，和 Android 的 .cache-android 一个思路：
+// 默认的 ~/Library/Caches/electron 在沙箱/CI/多用户机器上经常不可写（EPERM），
+// 而构建痕迹留在仓库里可以随时删掉重来，行为也更可预测。此目录已在 .gitignore。
+if (!process.env.ELECTRON_CACHE) {
+  const path = require('path');
+  process.env.ELECTRON_CACHE = path.join(__dirname, '..', '.cache-electron');
+  console.log(`Electron 缓存：${process.env.ELECTRON_CACHE}（可用 ELECTRON_CACHE 覆盖）`);
+}
+
 // 目标平台 → electron-builder 命令行参数
 const FLAGS = {
   win: ['--win'],
@@ -74,7 +92,23 @@ const result = spawnSync(process.execPath, [cli, ...FLAGS[target]], {
 });
 
 if (result.status === 0) {
-  console.log('\n===== 打包完成，产物在 dist/ 目录 =====\n');
+  // 把这次真正产出的文件列出来，省得靠猜（也方便脚本/CI 判断成功与否）
+  const fs = require('fs');
+  const path = require('path');
+  const dist = path.join(__dirname, '..', 'dist');
+  try {
+    const files = fs
+      .readdirSync(dist)
+      .filter((name) => /\.(dmg|zip|exe|AppImage|deb)$/i.test(name))
+      .map((name) => {
+        const stat = fs.statSync(path.join(dist, name));
+        return `  ${(stat.size / 1024 / 1024).toFixed(0)} MB  dist/${name}`;
+      });
+    if (files.length) console.log(`\n===== 打包完成 =====\n${files.join('\n')}\n`);
+    else console.log('\n===== 打包完成（dist/ 里没有安装包，可能只生成了目录）=====\n');
+  } catch {
+    console.log('\n===== 打包完成，产物在 dist/ 目录 =====\n');
+  }
 } else {
   console.error(`\n===== 打包失败（exit code ${result.status}）=====\n`);
 }

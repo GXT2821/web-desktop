@@ -97,21 +97,56 @@ npm run icons
 ## 打包
 
 ```bash
-node scripts/build.js            # 当前系统
-node scripts/build.js win        # Windows：NSIS 安装包 + portable
-node scripts/build.js mac        # macOS：dmg + zip
-node scripts/build.js linux      # Linux：AppImage + deb
-node scripts/build.js all        # 三端依次打包
+npm ci                    # 首次：装依赖
+npm run build:mac         # macOS → dist/DocVault-<版本>-arm64.dmg + .zip
 ```
 
-等价 npm 命令：`npm run build` / `build:win` / `build:mac` / `build:linux` / `build:all`，产物在 `dist/`。
+其他平台：`npm run build:win` / `build:linux` / `build:all`（也等价于
+`node scripts/build.js mac|win|linux|all`，产物都在 `dist/`）。
 
-macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序」安装）、同名的 `.zip`（绿色版）以及 `dist/mac-arm64/文档库.app`（未压缩的包，可直接运行）。
+macOS 产物：
 
-打包环境的两点说明：
+| 文件 | 用途 |
+|---|---|
+| `dist/DocVault-1.2.0-arm64.dmg` | 安装包，拖进「应用程序」 |
+| `dist/DocVault-1.2.0-arm64.zip` | 绿色版，解压即用 |
+| `dist/mac-arm64/文档库.app` | 未压缩的包，调试时可直接跑 |
 
-- **只做 ad-hoc 签名**：打包时 `scripts/after-pack.js` 会补一次 ad-hoc 签名（`codesign -s -`），保证翻转 fuses 后产物在本机能正常启动；这**不等于**正式分发签名——把安装包发给别人，对方打开时仍会提示"无法验证开发者"，需要右键 →「打开」，或先执行 `xattr -dr com.apple.quarantine /Applications/文档库.app`。要正式分发得配 Apple Developer ID 证书并公证，届时脚本检测到有效签名会自动跳过，不会覆盖。
-- **dmg 需要能创建磁盘映像的环境**：electron-builder 调 `hdiutil` 生成 dmg，在权限受限的沙箱/CI 里会报 `hdiutil: create failed - 操作不被允许`，此时只能拿到 zip（zip 在任何环境都能出）。
+### 流程里已经固定的三件事
+
+这三条都在仓库里（不是每次手敲参数），换机器、换时间结果一致：
+
+1. **Electron 运行时走镜像**：`scripts/build.js` 默认设置
+   `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`。官方源在
+   `github.com`，这个域名的 DNS 在部分网络下会偶发 `ENOTFOUND`，
+   一失败整个打包就中断（现象：`getaddrinfo ENOTFOUND github.com`）。
+   要回官方源：`ELECTRON_MIRROR=https://github.com/electron/electron/releases/download/ npm run build:mac`。
+2. **不做身份签名**：`package.json` 里 `mac.identity = null`，跳过
+   electron-builder 的钥匙串签名（否则在钥匙串锁定或无人值守的机器上会报
+   `errSecInternalComponent` 直接失败）。签名统一由 `scripts/after-pack.js`
+   补 ad-hoc 签名，且必须在翻转 fuses 之后做——Apple Silicon 上签名失效的
+   二进制会被系统直接 SIGKILL。
+3. **产物名带版本号**：来自 `package.json` 的 `version`，发版前改这里即可。
+
+### 打完检查一遍
+
+```bash
+codesign -dv dist/mac-arm64/文档库.app 2>&1 | grep Signature   # 期望 Signature=adhoc
+open dist/DocVault-*.dmg                                        # 拖进「应用程序」后打开，看底部版本号
+```
+
+### 遇到问题时先看错误类型
+
+| 报错 | 原因 | 处理 |
+|---|---|---|
+| `getaddrinfo ENOTFOUND github.com` | 下 Electron 运行时失败 | 确认 `scripts/build.js` 里的镜像生效，或临时用 `ELECTRON_MIRROR=` 指定可用源 |
+| `EPERM ... ~/Library/Caches/electron` | 当前用户对该缓存目录没有写权限（沙箱/CI） | 放开写权限，或 `ELECTRON_CACHE=/可写路径 npm run build:mac` |
+| `errSecInternalComponent` | electron-builder 尝试用钥匙串里的证书签名 | 已用 `identity: null` 规避；若自行改回身份签名，需先 `security unlock-keychain` |
+| `hdiutil: create failed - 操作不被允许` | 生成 dmg 需要挂载磁盘映像的权限 | 受限环境里只能拿到 zip（zip 无此依赖）；在正常桌面环境执行即可 |
+| 打开 App 报"无法验证开发者" | 只有 ad-hoc 签名，没有公证 | 右键 →「打开」，或 `xattr -dr com.apple.quarantine /Applications/文档库.app` |
+
+正式分发需要 Apple Developer ID 证书 + 公证：配好 `CSC_LINK`/`CSC_NAME` 后，
+`after-pack.js` 检测到有效签名会跳过 ad-hoc 重签，不会覆盖正式签名。
 
 ## Android 平板版
 

@@ -149,6 +149,9 @@
     title_asc: (a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'),
   };
 
+  // 排序下拉（自绘）的同步函数，renderList 之后调用，保证标签跟着值走
+  let syncSortMenu = () => {};
+
   const state = {
     lib: { folders: [], docs: [], dataFile: '', backupFile: '' },
     info: null,
@@ -395,12 +398,114 @@
   }
 
   // ==================== 渲染：列表 ====================
+  // ---------- 排序下拉（自绘）----------
+  // 原生 <select> 在 Android WebView 里弹出的是系统菜单（还有白底大圆角），
+  // 和界面完全不搭；这里把它藏起来，用一个自绘菜单代理，
+  // 值仍然写回 <select> 并派发 change，原有逻辑一行都不用改。
+  function setupSortMenu() {
+    const select = dom.sortSelect;
+    if (!select || select.dataset.custom === '1') return;
+    select.dataset.custom = '1';
+    select.classList.add('select-native');
+    select.setAttribute('aria-hidden', 'true');
+    select.tabIndex = -1;
+
+    const label = el('span', { class: 'select-proxy-label' });
+    const proxy = el(
+      'button',
+      { class: 'select-proxy', type: 'button', id: 'sortProxy', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': '排序方式' },
+      [label, window.Icons.node('caret')]
+    );
+
+    const items = new Map();
+    const menu = el('div', { class: 'select-menu', role: 'listbox' });
+    menu.hidden = true;
+
+    for (const option of [...select.options]) {
+      const item = el('button', {
+        class: 'select-menu-item',
+        type: 'button',
+        role: 'option',
+        dataset: { value: option.value },
+        text: option.textContent,
+        onclick: () => {
+          select.value = option.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          closeMenu();
+        },
+      });
+      items.set(option.value, item);
+      menu.append(item);
+    }
+
+    document.body.append(menu);
+    select.after(proxy);
+
+    const sync = () => {
+      const current = select.options[select.selectedIndex];
+      label.textContent = current ? current.textContent : '';
+      for (const [value, item] of items) {
+        const active = value === select.value;
+        item.classList.toggle('is-active', active);
+        item.setAttribute('aria-selected', active ? 'true' : 'false');
+      }
+    };
+
+    function closeMenu() {
+      if (menu.hidden) return;
+      menu.hidden = true;
+      proxy.setAttribute('aria-expanded', 'false');
+    }
+
+    function openMenu() {
+      sync();
+      const rect = proxy.getBoundingClientRect();
+      menu.hidden = false;
+      menu.style.minWidth = `${Math.max(Math.round(rect.width), 128)}px`;
+      const width = menu.offsetWidth;
+      const height = menu.offsetHeight;
+      const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8));
+      // 下方放不下就翻到按钮上方，别被屏幕裁掉
+      const below = rect.bottom + 6;
+      const top = below + height <= window.innerHeight - 8 ? below : Math.max(8, rect.top - height - 6);
+      menu.style.left = `${Math.round(left)}px`;
+      menu.style.top = `${Math.round(top)}px`;
+      proxy.setAttribute('aria-expanded', 'true');
+      const active = items.get(select.value);
+      if (active) active.focus({ preventScroll: true });
+    }
+
+    proxy.addEventListener('click', () => (menu.hidden ? openMenu() : closeMenu()));
+    proxy.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' && menu.hidden) {
+        event.preventDefault();
+        openMenu();
+      }
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+      if (menu.hidden) return;
+      if (menu.contains(event.target) || proxy.contains(event.target)) return;
+      closeMenu();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeMenu();
+      if (event.key === 'Tab') closeMenu();
+    });
+    window.addEventListener('resize', closeMenu);
+    document.addEventListener('scroll', closeMenu, true);
+
+    syncSortMenu = sync;
+    sync();
+  }
+
   function renderList() {
     if (state.view.type === 'folder' && !folderById(state.view.id)) state.view = { type: 'all', id: null };
 
     const docs = visibleDocs();
     const total = baseDocs().length;
 
+    syncSortMenu();
     dom.listTitle.textContent = viewTitle();
     const parts = [`${docs.length} 条`];
     if (docs.length !== total) parts.push(`（共 ${total} 条）`);
@@ -992,6 +1097,7 @@
     cacheDom();
     bindEvents();
     dom.sortSelect.value = state.sort;
+    setupSortMenu();
     try {
       const [lib, info] = await Promise.all([window.api.getLibrary(), window.api.getInfo()]);
       state.lib = lib;

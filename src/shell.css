@@ -362,6 +362,98 @@ svg {
   border-color: var(--accent-border);
 }
 
+/* ---------- 排序下拉（自绘，替代原生 select）----------
+   原生 select 在 Android WebView 里是系统样式，跟界面不搭，所以藏起来用代理按钮 */
+.select-native {
+  display: none !important;
+}
+
+.select-proxy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 9px 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.select-proxy:hover {
+  color: var(--text);
+}
+
+.select-proxy:focus-visible,
+.select-proxy[aria-expanded="true"] {
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.select-proxy svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.16s ease;
+}
+
+.select-proxy[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.select-menu {
+  position: fixed;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(22, 22, 45, 0.16), 0 2px 8px rgba(22, 22, 45, 0.06);
+}
+
+.select-menu[hidden] {
+  display: none;
+}
+
+.select-menu-item {
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+}
+
+.select-menu-item:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.select-menu-item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* ===== 侧栏内置视图 ===== */
 .sidenav {
   display: flex;

@@ -94,6 +94,18 @@ button:active,
   color: var(--accent, #2f6df6);
 }
 
+/* 自绘排序菜单在触屏上要有 44px 点击区 */
+.select-proxy {
+  height: 36px;
+  font-size: 14px;
+}
+
+.select-menu-item {
+  height: 44px;
+  font-size: 14px;
+  padding: 0 12px;
+}
+
 /* 头部在窄屏会换行，避免按钮被挤出屏幕 */
 .list-head {
   flex-wrap: wrap;
