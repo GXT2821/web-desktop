@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <title>文档库</title>
+  <link rel="stylesheet" href="shell.css" />
+  <link rel="stylesheet" href="mobile.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ===== 左侧：品牌 / 搜索 / 视图 / 文件夹 / 标签 ===== -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">GT</span>
+        <span class="brand-text">
+          <strong>文档库</strong>
+          <em>在线文档收藏</em>
+        </span>
+        <button
+          class="icon-btn collapse-btn"
+          id="collapseBtn"
+          type="button"
+          data-icon="sidebar"
+          title="折叠侧栏"
+          aria-label="折叠侧栏"
+          aria-expanded="true"
+        ></button>
+      </div>
+
+      <div class="search">
+        <span class="search-icon" data-icon="search"></span>
+        <input
+          id="search"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="搜索标题 / 链接 / 备注"
+        />
+        <button class="icon-btn" id="searchClear" data-icon="close" title="清空搜索" hidden></button>
+      </div>
+
+      <nav class="sidenav" id="sidenav"></nav>
+
+      <section class="side-section">
+        <header class="side-head">
+          <span>文件夹</span>
+          <button class="icon-btn" id="addFolderBtn" data-icon="folder-plus" title="新建文件夹"></button>
+        </header>
+        <div class="tree" id="folderTree"></div>
+      </section>
+
+      <section class="side-section side-section-tags">
+        <header class="side-head">
+          <span>标签</span>
+          <button class="link-btn" id="clearTagsBtn" hidden>清除</button>
+        </header>
+        <div class="taglist" id="tagList"></div>
+      </section>
+
+      <footer class="side-foot" id="sideFoot"></footer>
+    </aside>
+
+    <!-- ===== 右侧：列表 ===== -->
+    <main class="main">
+      <div class="content" id="content">
+        <section class="view active" id="libraryView">
+          <header class="list-head">
+            <div class="list-head-text">
+              <h1 class="list-title" id="listTitle">全部文档</h1>
+              <p class="list-sub" id="listSub"></p>
+            </div>
+            <div class="list-actions">
+              <button class="icon-btn" id="importBtn" type="button" data-icon="inbox" title="导入 JSON"></button>
+              <button class="icon-btn" id="exportBtn" type="button" data-icon="external" title="导出 JSON"></button>
+              <select class="select" id="sortSelect" title="排序方式">
+                <option value="created_desc">最近添加</option>
+                <option value="created_asc">最早添加</option>
+                <option value="opened_desc">最近打开</option>
+                <option value="title_asc">标题 A→Z</option>
+              </select>
+              <button class="btn-primary" id="addDocBtn" data-icon="plus">添加文档</button>
+            </div>
+          </header>
+
+          <div class="filterbar" id="filterBar" hidden></div>
+
+          <div class="doclist" id="docList"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 通用弹窗（表单 / 确认） -->
+  <div class="modal-root" id="modalRoot" hidden>
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal" id="modalBox" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <!-- 导入用的文件选择器（Android WebView 会调起系统文件选择器） -->
+  <input id="importFile" type="file" accept=".json,application/json,text/plain" hidden />
+
+  <script src="store-core.js"></script>
+  <script src="library.js"></script>
+  <script src="bridge.js"></script>
+  <script src="shell-mobile.js"></script>
+</body>
+</html>

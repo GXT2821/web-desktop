@@ -1,0 +1,102 @@
+/* Android 端补充样式：在 shell.css 之后加载，只做移动端适配，不改桌面端规则 */
+
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* Android 15 起强制 edge-to-edge，内容会画到状态栏/手势条下面。
+   留白加在 .app 上（它有固定 100vh），加到 body 上会把底部栏挤出屏幕。
+   env(safe-area-inset-*) 在部分 WebView 上取不到值，所以给 24px 兜底。 */
+.app {
+  height: 100vh;
+  box-sizing: border-box;
+  padding-top: max(env(safe-area-inset-top, 0px), 24px);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+}
+
+/* 触屏没有 hover，靠 active 给反馈；同时把可点区域撑到 40px 以上 */
+button,
+.side-item,
+.tree-row,
+.doc-card {
+  min-height: 40px;
+}
+
+button:active,
+.doc-card:active,
+.side-item:active {
+  transform: scale(0.985);
+}
+
+/* 侧栏在平板上常驻，手机上窄一些；折叠成图标栏时与桌面端一致 */
+.sidebar {
+  width: 248px;
+}
+
+/* Android 上没有数据文件可定位，底部那个"打开数据文件位置"隐藏掉，用列表右上角的导入导出代替 */
+.side-foot button {
+  display: none;
+}
+
+/* 弹窗里的 JSON 文本域 */
+.io-area {
+  width: 100%;
+  min-height: 180px;
+  max-height: 42vh;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--input-bg, #fff);
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+}
+
+.io-modes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.seg {
+  flex: 1 1 auto;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2, #4a5568);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.seg.is-active {
+  border-color: var(--accent, #2f6df6);
+  background: var(--accent-soft, rgba(47, 109, 246, 0.1));
+  color: var(--accent, #2f6df6);
+}
+
+/* 手机宽度下：默认收起成图标栏（由 JS 在首次进入时决定，用户手动切换后记住） */
+@media (max-width: 720px) {
+  .list-actions .btn-primary {
+    padding: 0 10px;
+  }
+}

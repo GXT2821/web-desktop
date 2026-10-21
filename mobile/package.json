@@ -1,0 +1,17 @@
+{
+  "name": "docvault-mobile",
+  "private": true,
+  "version": "1.2.0",
+  "description": "文档库 Android 端（Tauri 2）",
+  "scripts": {
+    "prepare": "node prepare.js",
+    "dev": "node prepare.js && tauri dev",
+    "icon": "tauri icon ../build/icon.png",
+    "android:init": "node prepare.js && tauri android init --ci",
+    "android:build": "node prepare.js && tauri android build --apk --target aarch64",
+    "android:dev": "node prepare.js && tauri android dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0"
+  }
+}

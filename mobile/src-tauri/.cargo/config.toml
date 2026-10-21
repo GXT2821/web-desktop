@@ -1,0 +1,10 @@
+# crates.io 直连在这台机器上返回 403，走中科大镜像。
+# 放在项目里而不是 ~/.cargo/config.toml，避免影响其他项目。
+[source.crates-io]
+replace-with = "ustc"
+
+[source.ustc]
+registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+
+[net]
+git-fetch-with-cli = true
