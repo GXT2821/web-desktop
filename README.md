@@ -121,12 +121,17 @@ macOS 产物：
    `github.com`，这个域名的 DNS 在部分网络下会偶发 `ENOTFOUND`，
    一失败整个打包就中断（现象：`getaddrinfo ENOTFOUND github.com`）。
    要回官方源：`ELECTRON_MIRROR=https://github.com/electron/electron/releases/download/ npm run build:mac`。
-2. **不做身份签名**：`package.json` 里 `mac.identity = null`，跳过
+2. **构建缓存放仓库里**：`package.json` 里配了
+   `electronDownload.cache = ".cache-electron"`，Electron 运行时（约 112 MB）
+   存在仓库目录下，和 Android 的 `.cache-android` 一个思路。好处是不依赖
+   `~/Library/Caches/electron` 的写权限（沙箱/CI/多用户机器上经常不可写，
+   报 `EPERM ... mkdir`）。这个目录在 `.gitignore` 里，删掉只会让下次构建重新下载。
+3. **不做身份签名**：`package.json` 里 `mac.identity = null`，跳过
    electron-builder 的钥匙串签名（否则在钥匙串锁定或无人值守的机器上会报
    `errSecInternalComponent` 直接失败）。签名统一由 `scripts/after-pack.js`
    补 ad-hoc 签名，且必须在翻转 fuses 之后做——Apple Silicon 上签名失效的
    二进制会被系统直接 SIGKILL。
-3. **产物名带版本号**：来自 `package.json` 的 `version`，发版前改这里即可。
+4. **产物名带版本号**：来自 `package.json` 的 `version`，发版前改这里即可。
 
 ### 打完检查一遍
 
@@ -140,7 +145,7 @@ open dist/DocVault-*.dmg                                        # 拖进「应�
 | 报错 | 原因 | 处理 |
 |---|---|---|
 | `getaddrinfo ENOTFOUND github.com` | 下 Electron 运行时失败 | 确认 `scripts/build.js` 里的镜像生效，或临时用 `ELECTRON_MIRROR=` 指定可用源 |
-| `EPERM ... ~/Library/Caches/electron` | 当前用户对该缓存目录没有写权限（沙箱/CI） | 放开写权限，或 `ELECTRON_CACHE=/可写路径 npm run build:mac` |
+| `EPERM ... mkdir`（缓存目录） | 缓存目录不可写（改过 `electronDownload.cache` 或删了 `.cache-electron` 后父目录只读） | 确认仓库目录可写；缓存位置在 `package.json` 的 `electronDownload.cache` |
 | `errSecInternalComponent` | electron-builder 尝试用钥匙串里的证书签名 | 已用 `identity: null` 规避；若自行改回身份签名，需先 `security unlock-keychain` |
 | `hdiutil: create failed - 操作不被允许` | 生成 dmg 需要挂载磁盘映像的权限 | 受限环境里只能拿到 zip（zip 无此依赖）；在正常桌面环境执行即可 |
 | 打开 App 报"无法验证开发者" | 只有 ad-hoc 签名，没有公证 | 右键 →「打开」，或 `xattr -dr com.apple.quarantine /Applications/文档库.app` |

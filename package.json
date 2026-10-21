@@ -73,6 +73,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
+    },
+    "electronDownload": {
+      "cache": ".cache-electron"
     }
   }
 }
