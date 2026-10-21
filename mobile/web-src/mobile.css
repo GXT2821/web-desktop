@@ -28,12 +28,59 @@ body {
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
 }
 
-/* 触屏没有 hover，靠 active 给反馈；同时把可点区域撑到 40px 以上 */
-button,
+/* 触屏没有 hover，靠 active 给反馈；同时把可点区域撑到 40px 以上。
+   标签芯片例外：它是一排密集的小目标，统一撑到 40px 会挤掉一屏标签，
+   反而更难扫视和点准，单独按紧凑尺寸处理（见下方 .tag-chip）。 */
+button:not(.tag-chip),
 .side-item,
 .tree-row,
 .doc-card {
   min-height: 40px;
+}
+
+/* ---------- 搜索框 ---------- */
+/* 平板/手机上搜索是高频输入，给足高度和字号，别做成桌面那种紧凑小框 */
+.search {
+  height: 44px;
+  margin: 0 12px 12px;
+  padding: 0 12px 0 12px;
+  border-radius: 11px;
+  gap: 8px;
+}
+
+.search-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.search input {
+  font-size: 15px;
+  height: 100%;
+}
+
+.search input::placeholder {
+  font-size: 15px;
+}
+
+/* ---------- 标签芯片 ---------- */
+/* 桌面 11.5px 的芯片在平板上偏小，控制在一行 28px、字号 12.5px，
+   既比桌面大一点好点，又不会像之前 40px 那样把标签区占满 */
+.taglist {
+  gap: 6px;
+  padding: 2px 12px 10px;
+  max-height: 24vh;
+}
+
+.tag-chip {
+  min-height: 0;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  gap: 5px;
+}
+
+.tag-chip .n {
+  font-size: 11px;
 }
 
 button:active,

@@ -163,8 +163,8 @@ open dist/DocVault-*.dmg                                        # 拖进「应�
 
 ![Android 端](docs/android-home.png)
 
-- 安装包：`dist/DocVault-Android-1.2.0-arm64.apk`（约 5.6 MB，Android 7.0+）
-- 安装：`adb install -r dist/DocVault-Android-1.2.0-arm64.apk`，或拷到平板上点开安装
+- 安装包：`dist/DocVault-Android-1.2.1-arm64.apk`（约 5.8 MB，Android 7.0+）
+- 安装：`adb install -r dist/DocVault-Android-1.2.1-arm64.apk`，或拷到平板上点开安装
   （需允许"安装未知来源应用"）
 - 打开文档走系统浏览器（第三方网页不允许被内嵌，登录态也留在浏览器里）
 - 横竖屏都适配：平板横屏三列、竖屏单列；手机宽度下侧栏变成抽屉
