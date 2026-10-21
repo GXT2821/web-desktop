@@ -60,12 +60,15 @@ doc-vault/
 ├── main.js          主进程：窗口、IPC、webview 策略（UA 清洗 / 弹窗拦截 / 导航白名单）、窗口尺寸记忆
 ├── preload.js       安全桥：只暴露 window.api 的具体方法
 ├── src/
-│   ├── store.js     数据层：library.json 的读写、字段校验、原子写 + 备份 + 损坏恢复
+│   ├── store-core.js 数据核心：字段校验与增删改（桌面端和 Android 端共用同一份）
+│   ├── store.js     数据层：library.json 的读写、原子写 + 备份 + 损坏恢复（基于 store-core）
 │   ├── shell.html   外壳结构（侧栏 + 标签栏 + 工具条 + 内容区 + 弹窗）
 │   ├── shell.css    全部样式
 │   ├── library.js   文档库：侧栏视图、文件夹树、标签、搜索、列表、增删改弹窗
 │   └── shell.js     标签页与 webview 管理、错误页、快捷键
 ├── build/           图标资源（icon.svg 为设计源，icns/ico/多尺寸 png 为产物）
+├── mobile/          Android 平板版（Tauri 2），见 mobile/README.md
+├── docs/            文档用图
 └── scripts/
     ├── build.js         跨平台打包入口
     └── build-icons.js   图标生成：超椭圆形状 + 三个方案 + 设计评审图
@@ -107,6 +110,23 @@ macOS 上会得到 `dist/DocVault-<版本>-<架构>.dmg`（拖进「应用程序
 
 - **只做 ad-hoc 签名**：打包时 `scripts/after-pack.js` 会补一次 ad-hoc 签名（`codesign -s -`），保证翻转 fuses 后产物在本机能正常启动；这**不等于**正式分发签名——把安装包发给别人，对方打开时仍会提示"无法验证开发者"，需要右键 →「打开」，或先执行 `xattr -dr com.apple.quarantine /Applications/文档库.app`。要正式分发得配 Apple Developer ID 证书并公证，届时脚本检测到有效签名会自动跳过，不会覆盖。
 - **dmg 需要能创建磁盘映像的环境**：electron-builder 调 `hdiutil` 生成 dmg，在权限受限的沙箱/CI 里会报 `hdiutil: create failed - 操作不被允许`，此时只能拿到 zip（zip 在任何环境都能出）。
+
+## Android 平板版
+
+桌面版是 Electron，只能跑 macOS / Windows / Linux；平板上的「文档库」是另一个壳
+（Tauri 2），复用同一套界面、同一套校验逻辑，数据存在本机，用 JSON 与桌面版互通。
+
+![Android 端](docs/android-home.png)
+
+- 安装包：`dist/DocVault-Android-1.2.0-arm64.apk`（约 5.6 MB，Android 7.0+）
+- 安装：`adb install -r dist/DocVault-Android-1.2.0-arm64.apk`，或拷到平板上点开安装
+  （需允许"安装未知来源应用"）
+- 打开文档走系统浏览器（第三方网页不允许被内嵌，登录态也留在浏览器里）
+- 数据迁移：桌面版复制 `library.json` → 平板「导入」；平板「导出」→ 桌面版覆盖
+  （支持"合并"和"覆盖"两种模式）
+
+构建方法、签名密钥（`.android-keys/`，**删了就没法覆盖升级**）和踩过的坑都写在
+[`mobile/README.md`](mobile/README.md)。
 
 ## 安全说明
 

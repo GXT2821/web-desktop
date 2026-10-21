@@ -1,0 +1,32 @@
+[package]
+name = "docvault-mobile"
+version = "1.2.0"
+description = "文档库 Android 端"
+authors = ["guotao"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "docvault_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+
+[features]
+# 默认走 Tauri 的自定义协议；Android 端不需要额外开关
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[profile.dev]
+incremental = true
