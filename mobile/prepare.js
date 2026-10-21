@@ -37,4 +37,28 @@ for (const file of fs.readdirSync(ownDir)) {
   fs.copyFileSync(path.join(ownDir, file), path.join(outDir, file));
 }
 
+// Android 启动图标：tauri icon 只写 src-tauri/icons/，不会回头覆盖已经生成的工程，
+// 结果 APK 里还是 Tauri 默认图标（和桌面端对不上）。每次构建前同步一次，省得手动拷。
+function syncAndroidIcons() {
+  const from = path.join(root, 'src-tauri', 'icons', 'android');
+  const to = path.join(root, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'res');
+  if (!fs.existsSync(from) || !fs.existsSync(to)) return 0;
+
+  let count = 0;
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const src = path.join(from, entry.name);
+    const dest = path.join(to, entry.name);
+    fs.mkdirSync(dest, { recursive: true });
+    for (const file of fs.readdirSync(src)) {
+      fs.copyFileSync(path.join(src, file), path.join(dest, file));
+      count += 1;
+    }
+  }
+  return count;
+}
+
+const iconCount = syncAndroidIcons();
+if (iconCount) console.log(`[prepare] 已同步 Android 图标 ${iconCount} 个文件`);
+
 console.log(`[prepare] 已生成 ${path.relative(process.cwd(), outDir)}（${SHARED.length + fs.readdirSync(ownDir).length} 个文件）`);
