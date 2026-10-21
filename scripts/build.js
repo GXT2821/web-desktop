@@ -27,15 +27,6 @@ if (!process.env.ELECTRON_MIRROR) {
   console.log(`Electron 镜像：${process.env.ELECTRON_MIRROR}（可用 ELECTRON_MIRROR 覆盖）`);
 }
 
-// Electron 运行时（~120MB）缓存放在仓库里，和 Android 的 .cache-android 一个思路：
-// 默认的 ~/Library/Caches/electron 在沙箱/CI/多用户机器上经常不可写（EPERM），
-// 而构建痕迹留在仓库里可以随时删掉重来，行为也更可预测。此目录已在 .gitignore。
-if (!process.env.ELECTRON_CACHE) {
-  const path = require('path');
-  process.env.ELECTRON_CACHE = path.join(__dirname, '..', '.cache-electron');
-  console.log(`Electron 缓存：${process.env.ELECTRON_CACHE}（可用 ELECTRON_CACHE 覆盖）`);
-}
-
 // 目标平台 → electron-builder 命令行参数
 const FLAGS = {
   win: ['--win'],
