@@ -67,13 +67,20 @@
       <div class="content" id="content">
         <section class="view active" id="libraryView">
           <header class="list-head">
+            <button
+              class="icon-btn menu-btn"
+              id="menuBtn"
+              type="button"
+              data-icon="sidebar"
+              title="显示侧栏"
+              aria-label="显示侧栏"
+            ></button>
             <div class="list-head-text">
               <h1 class="list-title" id="listTitle">全部文档</h1>
               <p class="list-sub" id="listSub"></p>
             </div>
             <div class="list-actions">
               <button class="icon-btn" id="importBtn" type="button" data-icon="inbox" title="导入 JSON"></button>
-              <button class="icon-btn" id="exportBtn" type="button" data-icon="external" title="导出 JSON"></button>
               <select class="select" id="sortSelect" title="排序方式">
                 <option value="created_desc">最近添加</option>
                 <option value="created_asc">最早添加</option>
@@ -90,6 +97,9 @@
         </section>
       </div>
     </main>
+
+    <!-- 窄屏（竖屏/手机）时侧栏变抽屉，点遮罩关闭 -->
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
   </div>
 
   <!-- 通用弹窗（表单 / 确认） -->

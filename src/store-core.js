@@ -185,6 +185,16 @@
       };
     }
 
+    // 导出成可以给别的设备导入的 JSON：只有版本号、文件夹、文档
+    // （snapshot 里的 dataFile/backupFile 是本机路径，给别人没用）
+    exportPayload() {
+      return {
+        version: this.data.version,
+        folders: this.data.folders.map((f) => ({ ...f })),
+        docs: this.data.docs.map((d) => ({ ...d, tags: [...d.tags] })),
+      };
+    }
+
     // ---------- 文档 ----------
 
     addDoc(input = {}) {

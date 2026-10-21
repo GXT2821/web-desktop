@@ -134,17 +134,7 @@
     return true;
   }
 
-  // ---------- 导入 / 导出 ----------
-
-  // 导出成可以贴到别处、也能被桌面版直接读入的 JSON
-  function exportText() {
-    const payload = {
-      version: store.data.version,
-      folders: store.data.folders,
-      docs: store.data.docs,
-    };
-    return JSON.stringify(payload, null, 2);
-  }
+  // ---------- 导入 ----------
 
   // mode: 'merge' 只补不覆盖（同 id 或同链接视为已存在）；'replace' 整个替换
   function importText(text, mode = 'merge') {
@@ -261,11 +251,10 @@
     openExternal,
     copyText,
     revealDataFile: async () => {
-      throw new Error('Android 版没有数据文件，可以用「导出」把数据带走');
+      throw new Error('Android 版没有数据文件；要备份请在电脑上用「导出」');
     },
 
     // Android 端扩展（桌面端没有下载管理，这几个只看不用）
-    exportLibrary: async () => exportText(),
     importLibrary: async (text, mode) => importText(text, mode),
   };
 

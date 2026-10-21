@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { Store, normalizeUrl, fallbackTitle, LIMITS } = require('../src/store');
+const { Store, normalizeUrl, fallbackTitle, LIMITS, sanitizeLibrary } = require('../src/store');
 
 // 每个用例一个独立目录，跑完即删
 function withStore(fn) {
@@ -406,7 +406,8 @@ test('超大文件按损坏处理：不解析、原文件留档、从备份恢�
   withStore(({ dir, file, store }) => {
     store.load();
     store.addDoc({ url: 'https://example.com/ok' });
-    store.addDoc({ url: 'https://example.com/ok2' }); // 生成 .bak
+    store.addDoc({ url: 'https://example.com/ok2' });
+    // 生成 .bak
 
     // 造一个超过上限的文件（内容不重要，重点是它不会被整读解析）
     fs.writeFileSync(file, Buffer.alloc(51 * 1024 * 1024, 0x20));
@@ -430,3 +431,29 @@ test('留档文件自动清理：超过 5 个时只保留最新的', () =>
     assert.ok(before >= 1);
     assert.ok(before <= 5, `留档数量应被限制在 5 个以内，实际 ${before}`);
   }));
+
+test('exportPayload 只导出可移植的数据，且能被 sanitize 原样读回', () => {
+  withStore(({ store }) => {
+    const folder = store.addFolder('工作');
+    store.addDoc({ url: 'https://example.com/a', title: '文档 A', tags: ['协作', '协作'], folderId: folder.id });
+    store.addDoc({ url: 'example.com/b' });
+
+    const payload = store.exportPayload();
+    assert.equal(payload.version, 1);
+    assert.deepEqual(Object.keys(payload).sort(), ['docs', 'folders', 'version']);
+    // 本机路径不能出现在导出文件里
+    assert.equal('dataFile' in payload, false);
+    assert.equal('backupFile' in payload, false);
+    assert.equal(payload.docs.length, 2);
+    assert.equal(payload.folders.length, 1);
+
+    // 导出的内容再过一次清洗应当完全等价（Android 端导入走的就是这条路）
+    const roundTrip = sanitizeLibrary(JSON.parse(JSON.stringify(payload)));
+    assert.deepEqual(roundTrip.docs, payload.docs);
+    assert.deepEqual(roundTrip.folders, payload.folders);
+
+    // 导出是只读操作，不应改动库本身
+    assert.equal(store.snapshot().docs.length, 2);
+    assert.ok(fs.existsSync(store.file));
+  });
+});

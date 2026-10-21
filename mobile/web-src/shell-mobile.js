@@ -1,7 +1,7 @@
 // Android 端的"外壳"：没有标签页、没有内嵌浏览器，文档一律交给系统浏览器打开
 //
 // 桌面端 shell.js 负责标签页 / webview / 下载面板；Android 上这些都不存在，
-// 所以只保留三件事：打开文档、折叠侧栏、导入导出。
+// 所以只保留三件事：打开文档、折叠侧栏、导入（导出放在桌面端做）。
 
 (function () {
   'use strict';
@@ -33,6 +33,7 @@
 
   function openDoc(doc) {
     if (!doc) return;
+    if (isNarrow()) setDrawer(false);
     // 先记一笔"最近打开"，再交给系统浏览器；打不开就提示，不让界面假装成功
     window.api
       .touchDoc(doc.id)
@@ -46,11 +47,20 @@
   // ---------- 侧栏折叠 ----------
 
   const SIDEBAR_KEY = 'docvault.sidebarCollapsed';
+  const DRAWER_BREAKPOINT = 640; // 小于等于这个宽度（竖屏手机/窄窗口）侧栏改抽屉
+
+  const app = () => document.querySelector('.app');
+  const isNarrow = () => window.innerWidth <= DRAWER_BREAKPOINT;
+  const drawerOpen = () => app().classList.contains('drawer-open');
+
+  function setDrawer(open) {
+    app().classList.toggle('drawer-open', open);
+  }
 
   function setSidebarCollapsed(collapsed) {
     // 和桌面端同一套 class（shell.css 里是 .app.collapsed）
-    const app = document.querySelector('.app');
-    if (app) app.classList.toggle('collapsed', collapsed);
+    const root = app();
+    if (root) root.classList.toggle('collapsed', collapsed);
     const btn = document.getElementById('collapseBtn');
     if (btn) {
       btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
@@ -64,24 +74,71 @@
     }
   }
 
+  // 横竖屏切换时：宽屏恢复内联侧栏，窄屏不保留"图标栏"形态
+  function handleViewportChange() {
+    if (isNarrow()) {
+      app().classList.remove('collapsed');
+    } else {
+      setDrawer(false);
+      let remembered = null;
+      try {
+        remembered = localStorage.getItem(SIDEBAR_KEY);
+      } catch {
+        /* 忽略 */
+      }
+      setSidebarCollapsed(remembered === '1');
+    }
+  }
+
   function bindSidebar() {
-    const btn = document.getElementById('collapseBtn');
-    if (btn) btn.addEventListener('click', () => {
-      setSidebarCollapsed(!document.querySelector('.app').classList.contains('collapsed'));
-    });
-    let collapsed = false;
+    const collapseBtn = document.getElementById('collapseBtn');
+    const menuBtn = document.getElementById('menuBtn');
+    const backdrop = document.getElementById('drawerBackdrop');
+
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => {
+        // 窄屏：这个按钮用来关抽屉；宽屏：折叠成图标栏
+        if (isNarrow()) {
+          setDrawer(false);
+          return;
+        }
+        setSidebarCollapsed(!app().classList.contains('collapsed'));
+      });
+    }
+
+    if (menuBtn) menuBtn.addEventListener('click', () => setDrawer(!drawerOpen()));
+    if (backdrop) backdrop.addEventListener('click', () => setDrawer(false));
+
+    // 在抽屉里选了视图/文件夹/标签后自动收起，别挡着列表
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+      sidebar.addEventListener('click', (event) => {
+        if (!isNarrow() || !drawerOpen()) return;
+        if (event.target.closest('#collapseBtn')) return;
+        if (event.target.closest('.side-item, .tree-row, .tag-chip, .side-foot')) {
+          setTimeout(() => setDrawer(false), 120);
+        }
+      });
+    }
+
     let remembered = null;
     try {
       remembered = localStorage.getItem(SIDEBAR_KEY);
     } catch {
       /* 忽略 */
     }
-    // 没手动切换过时，窄屏（手机）默认收起，平板保持展开
-    collapsed = remembered === null ? window.innerWidth < 720 : remembered === '1';
-    setSidebarCollapsed(collapsed);
+
+    if (isNarrow()) {
+      app().classList.remove('collapsed');
+    } else {
+      setSidebarCollapsed(remembered === '1');
+    }
+
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('orientationchange', () => setTimeout(handleViewportChange, 150));
   }
 
-  // ---------- 导入 / 导出 ----------
+  // ---------- 导入 ----------
 
   function readFile(file) {
     return new Promise((resolve, reject) => {
@@ -166,7 +223,7 @@
       el('h2', { text: '导入文档' }),
       el('p', {
         class: 'modal-desc',
-        text: '支持桌面版「文件 → 导出」或本机导出的 JSON。合并只补新增，覆盖会用文件内容替换整库。',
+        text: '在电脑上点「导出」得到一个 JSON，传到平板后在这里选文件导入。合并只补新增，覆盖会用文件内容替换整库。',
       }),
       el('div', { class: 'field' }, [el('label', { text: '导入方式' }), modeRow]),
       el('div', { class: 'field' }, [el('label', { text: 'JSON 内容' }), area]),
@@ -191,73 +248,9 @@
     openModal(form);
   }
 
-  // 导出：优先走系统分享，其次复制到剪贴板，最后让用户手动全选复制
-  function exportDialog() {
-    const area = el('textarea', { class: 'io-area', spellcheck: 'false', readonly: true });
-    const hint = el('p', { class: 'modal-desc', text: '正在生成…' });
-
-    window.api
-      .exportLibrary()
-      .then((json) => {
-        area.value = json;
-        hint.textContent = `共 ${JSON.parse(json).docs.length} 条文档。可以复制后粘贴到备忘录/邮件，或直接把文件存到电脑上。`;
-      })
-      .catch((err) => {
-        hint.textContent = `导出失败：${err.message}`;
-      });
-
-    const copyBtn = el('button', {
-      class: 'btn-primary',
-      type: 'button',
-      text: '复制全部',
-      onclick: async () => {
-        try {
-          await window.api.copyText(area.value);
-          window.Library.toast('已复制到剪贴板');
-        } catch (err) {
-          window.Library.toast(err.message, true);
-        }
-      },
-    });
-
-    const shareBtn = el('button', {
-      class: 'btn-ghost',
-      type: 'button',
-      text: '分享到…',
-      onclick: async () => {
-        if (!navigator.share) {
-          window.Library.toast('这台设备不支持系统分享，可以用「复制全部」', true);
-          return;
-        }
-        try {
-          await navigator.share({ title: '文档库备份', text: area.value });
-        } catch {
-          /* 用户取消分享，不用提示 */
-        }
-      },
-    });
-
-    const form = el('form', { class: 'modal-form' }, [
-      el('h2', { text: '导出文档' }),
-      hint,
-      el('div', { class: 'field' }, [el('label', { text: 'JSON' }), area]),
-      el('div', { class: 'modal-actions' }, [
-        shareBtn,
-        el('button', { class: 'btn-ghost', type: 'button', text: '关闭', onclick: closeModal }),
-        copyBtn,
-      ]),
-    ]);
-
-    form.addEventListener('submit', (event) => event.preventDefault());
-
-    openModal(form);
-  }
-
   function bindIo() {
     const importBtn = document.getElementById('importBtn');
-    const exportBtn = document.getElementById('exportBtn');
     if (importBtn) importBtn.addEventListener('click', importDialog);
-    if (exportBtn) exportBtn.addEventListener('click', exportDialog);
   }
 
   // ---------- 启动 ----------
