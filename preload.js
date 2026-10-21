@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   // 系统能力
   openExternal: (url) => call('shell:open-external', { url }),
   copyText: (text) => call('clipboard:write', { text }),
+  exportLibrary: () => call('library:export'),
   revealDataFile: () => call('store:reveal'),
 
   // 主进程通知：网页里的 window.open 已被拦截，改为应用内新标签

@@ -94,9 +94,74 @@ button:active,
   color: var(--accent, #2f6df6);
 }
 
-/* 手机宽度下：默认收起成图标栏（由 JS 在首次进入时决定，用户手动切换后记住） */
-@media (max-width: 720px) {
+/* 头部在窄屏会换行，避免按钮被挤出屏幕 */
+.list-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.menu-btn {
+  display: none;
+  flex: 0 0 auto;
+}
+
+/* ---------- 竖屏 / 窄屏：侧栏改抽屉 ---------- */
+@media (max-width: 640px) {
+  .menu-btn {
+    display: inline-flex;
+  }
+
+  /* 抽屉模式下不用"图标栏"形态，直接用整块侧栏滑出 */
+  .app.collapsed .sidebar {
+    width: 264px;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 60;
+    width: 264px;
+    padding-top: max(env(safe-area-inset-top, 0px), 24px);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  }
+
+  .app.drawer-open .sidebar {
+    transform: none;
+  }
+
+  .app.drawer-open .drawer-backdrop {
+    display: block;
+  }
+
+  .drawer-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(15, 23, 42, 0.35);
+  }
+
+  .list-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
   .list-actions .btn-primary {
-    padding: 0 10px;
+    padding: 0 12px;
+  }
+
+  .doclist {
+    grid-template-columns: 1fr;
+    padding: 0 12px 24px;
+  }
+
+  .content {
+    padding: 0;
   }
 }

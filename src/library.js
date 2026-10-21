@@ -893,6 +893,21 @@
       addDocDialog({ folderId: state.view.type === 'folder' ? state.view.id : null })
     );
 
+    // 导出为 JSON 文件（桌面端专属；Android 端没有这个按钮）
+    const exportBtn = document.getElementById('exportBtn');
+    if (exportBtn && typeof window.api.exportLibrary === 'function') {
+      exportBtn.addEventListener('click', async () => {
+        try {
+          const result = await window.api.exportLibrary();
+          if (!result || result.canceled) return;
+          const name = result.path.split(/[\\/]/).pop();
+          toast(`已导出 ${result.docs} 条文档 → ${name}`);
+        } catch (err) {
+          toast(`导出失败：${err.message}`, true);
+        }
+      });
+    }
+
     dom.sortSelect.addEventListener('change', () => {
       state.sort = dom.sortSelect.value;
       writePref('sort', state.sort);

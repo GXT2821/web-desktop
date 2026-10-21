@@ -273,6 +273,13 @@ function handle(channel, fn) {
   });
 }
 
+// 导出文件名：DocVault-20261021-1745.json，和 Android 端的导入说明对得上
+function exportFilename() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `DocVault-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+}
+
 function registerIpc() {
   const snapshot = () => store.snapshot();
 
@@ -329,6 +336,30 @@ function registerIpc() {
     clipboard.writeText(String(text == null ? '' : text).slice(0, 100_000));
     return true;
   });
+  // 导出成 JSON 文件：交给系统"另存为"，用户自己选位置（默认落在下载目录）
+  handle('library:export', async () => {
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const { canceled, filePath } = await dialog.showSaveDialog(win || undefined, {
+      title: '导出文档库',
+      defaultPath: path.join(app.getPath('downloads'), exportFilename()),
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    });
+    if (canceled || !filePath) return { canceled: true };
+
+    const payload = store.exportPayload();
+    await fs.promises.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    return {
+      canceled: false,
+      path: filePath,
+      docs: payload.docs.length,
+      folders: payload.folders.length,
+    };
+  });
+
   handle('store:reveal', () => {
     if (fs.existsSync(store.file)) shell.showItemInFolder(store.file);
     else shell.openPath(DATA_DIR);
