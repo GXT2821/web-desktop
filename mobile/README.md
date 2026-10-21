@@ -105,7 +105,7 @@ PASS=$(grep storePassword .android-keys/keystore.properties | cut -d= -f2)
   /tmp/aligned.apk
 "$BT/apksigner" sign --ks .android-keys/docvault-release.keystore \
   --ks-pass "pass:$PASS" --ks-key-alias docvault --key-pass "pass:$PASS" \
-  --out ../dist/DocVault-Android-1.2.0-arm64.apk /tmp/aligned.apk
+  --out ../dist/DocVault-Android-1.2.1-arm64.apk /tmp/aligned.apk
 ```
 
 > **`.android-keys/` 千万别删**。Android 用签名判断"是不是同一个应用"，
@@ -117,7 +117,7 @@ PASS=$(grep storePassword .android-keys/keystore.properties | cut -d= -f2)
 ## 安装
 
 ```bash
-adb install -r dist/DocVault-Android-1.2.0-arm64.apk
+adb install -r dist/DocVault-Android-1.2.1-arm64.apk
 ```
 
 或者把 APK 拷到平板上，用文件管理器点开安装（需要允许"安装未知来源应用"）。
