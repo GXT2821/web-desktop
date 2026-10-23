@@ -481,6 +481,9 @@
     if (!event.metaKey && !event.ctrlKey) return;
     const key = String(event.key || '').toLowerCase();
     if (!/^([1-9]|w|n|f|r)$/.test(key)) return;
+    // 网页标签里 Cmd/Ctrl+F 归网页自己（页内查找），应用不抢；
+    // 文档库界面里则聚焦左侧搜索框。
+    if (key === 'f' && activeTab && activeTab.kind === 'web') return;
     event.preventDefault();
     handleShortcut(key);
   }

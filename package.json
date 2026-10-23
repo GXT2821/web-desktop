@@ -1,12 +1,12 @@
 {
   "name": "doc-vault",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "在线文档收藏夹：把散落在浏览器标签里的文档链接长期保存下来",
   "author": "GT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/store.test.js",
+    "test": "node --test test/*.test.js",
     "icons": "electron scripts/build-icons.js --force-device-scale-factor=1",
     "pack": "electron-builder --dir",
     "build": "node scripts/build.js",

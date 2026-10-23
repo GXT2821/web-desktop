@@ -84,6 +84,7 @@ function isOpenable(url) {
 
 // 抹掉 UA 里的 Electron / 应用标识：部分文档站点（Google 登录等）会因此拒绝服务
 const { buildCleanUA } = require('./src/user-agent');
+const { bindGuestShortcuts } = require('./src/shortcuts');
 
 // 开发调试快捷键：F12 或 Cmd/Ctrl+Shift+I 打开对应页面的调试器
 // 打包后默认关闭（release 里开着调试器等于把脚本执行入口摆在界面上），
@@ -99,18 +100,8 @@ function bindDevtools(contents, event, input) {
   }
 }
 
-// 焦点在 webview 里时，快捷键会被 guest 吃掉；这里拦下应用级快捷键转发给渲染进程
-function bindGuestShortcuts(win, guest) {
-  guest.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown') return;
-    const mod = process.platform === 'darwin' ? input.meta : input.control;
-    if (!mod || input.shift || input.alt) return;
-    const key = String(input.key || '').toLowerCase();
-    if (!/^([1-9]|w|n|f|r)$/.test(key)) return;
-    event.preventDefault();
-    win.webContents.send('shortcut', { key });
-  });
-}
+// 焦点在 webview 里时，应用级快捷键的处理见 src/shortcuts.js：
+// Cmd/Ctrl+F 不拦（留给网页自己的「查找」），w/r/n/1-9 照旧转发。
 
 // 每个 webview（guest）挂载时的统一加固
 function hardenGuest(win, guest) {
