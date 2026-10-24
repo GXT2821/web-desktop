@@ -3,11 +3,14 @@
  * 跨平台打包脚本（统一入口，自动适配操作系统）
  *
  * 用法（在项目根目录执行）：
- *   node scripts/build.js           # 打包「当前操作系统」对应的安装包
- *   node scripts/build.js win       # Windows → NSIS 安装包 + portable 绿色版
- *   node scripts/build.js mac       # macOS   → dmg + zip
- *   node scripts/build.js linux     # Linux   → AppImage + deb
- *   node scripts/build.js all       # 三端依次打包（注意下方限制）
+ *   node scripts/build.js               # 打包「当前操作系统」对应的安装包
+ *   node scripts/build.js win           # Windows → NSIS 安装包 + portable 绿色版
+ *   node scripts/build.js mac           # macOS   → dmg + zip
+ *   node scripts/build.js linux         # Linux   → AppImage + deb
+ *   node scripts/build.js all           # 三端依次打包（注意下方限制）
+ *   node scripts/build.js win x64       # 指定架构：x64 / arm64 / ia32 / universal
+ *
+ * 不写架构时按当前机器架构打包（Apple Silicon 上默认 arm64）。
  *
  * 等价 npm 命令：
  *   npm run build        → 当前系统
@@ -25,6 +28,12 @@ const { spawnSync } = require('child_process');
 if (!process.env.ELECTRON_MIRROR) {
   process.env.ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/';
   console.log(`Electron 镜像：${process.env.ELECTRON_MIRROR}（可用 ELECTRON_MIRROR 覆盖）`);
+}
+
+// NSIS / winCodeSign 等打包器二进制同样从 GitHub 下载，走同一套镜像避免卡住
+if (!process.env.ELECTRON_BUILDER_BINARIES_MIRROR) {
+  process.env.ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/';
+  console.log(`打包器镜像：${process.env.ELECTRON_BUILDER_BINARIES_MIRROR}`);
 }
 
 // 目标平台 → electron-builder 命令行参数
@@ -47,9 +56,18 @@ const input = (process.argv[2] || 'current').toLowerCase();
 const target = input === 'current' ? CURRENT_PLATFORM : input;
 
 if (!FLAGS[target]) {
-  console.error('用法: node scripts/build.js [win|mac|linux|all|current]');
+  console.error('用法: node scripts/build.js [win|mac|linux|all|current] [x64|arm64|ia32|universal]');
   process.exit(1);
 }
+
+// 可选架构参数：不写就用当前机器的架构
+const ARCHS = { x64: '--x64', arm64: '--arm64', ia32: '--ia32', universal: '--universal' };
+const archInput = (process.argv[3] || '').toLowerCase();
+if (archInput && !ARCHS[archInput]) {
+  console.error(`不支持的架构: ${archInput}（可用 x64 / arm64 / ia32 / universal）`);
+  process.exit(1);
+}
+const buildArgs = [...FLAGS[target], ...(archInput ? [ARCHS[archInput]] : [])];
 
 // 跨平台构建限制提示（仅提醒，不阻断执行）
 const CROSS_TIPS = {
@@ -78,7 +96,7 @@ try {
   process.exit(1);
 }
 
-const result = spawnSync(process.execPath, [cli, ...FLAGS[target]], {
+const result = spawnSync(process.execPath, [cli, ...buildArgs], {
   stdio: 'inherit',
 });
 
