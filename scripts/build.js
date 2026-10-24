@@ -30,6 +30,15 @@ if (!process.env.ELECTRON_MIRROR) {
   console.log(`Electron 镜像：${process.env.ELECTRON_MIRROR}（可用 ELECTRON_MIRROR 覆盖）`);
 }
 
+// 打包器二进制（NSIS / appimage / linux-tools）也缓存在仓库里：
+// 默认的 ~/Library/Caches/electron-builder 在沙箱或受限账户下不可写（EPERM），
+// 放进仓库后与 source 同生命周期，删掉只是下次重新下载。已在 .gitignore。
+if (!process.env.ELECTRON_BUILDER_CACHE) {
+  const path = require('path');
+  process.env.ELECTRON_BUILDER_CACHE = path.join(__dirname, '..', '.cache-builder');
+  console.log(`打包器缓存：${process.env.ELECTRON_BUILDER_CACHE}（可用 ELECTRON_BUILDER_CACHE 覆盖）`);
+}
+
 // NSIS / winCodeSign 等打包器二进制同样从 GitHub 下载，走同一套镜像避免卡住
 if (!process.env.ELECTRON_BUILDER_BINARIES_MIRROR) {
   process.env.ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/';

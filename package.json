@@ -73,14 +73,18 @@
       "artifactName": "DocVault-${version}.${ext}"
     },
     "nsis": {
+      "artifactName": "DocVault-${version}-win-x64-setup.${ext}",
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     },
     "electronDownload": {
       "cache": ".cache-electron"
     },
-    "artifactName": "DocVault-${version}-${os}-${arch}.${ext}"
+    "artifactName": "DocVault-${version}-${os}-${arch}.${ext}",
+    "portable": {
+      "artifactName": "DocVault-${version}-win-x64-portable.${ext}"
+    }
   },
   "license": "MIT",
   "repository": {
