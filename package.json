@@ -2,7 +2,10 @@
   "name": "doc-vault",
   "version": "1.2.1",
   "description": "在线文档收藏夹：把散落在浏览器标签里的文档链接长期保存下来",
-  "author": "guo-tao",
+  "author": {
+    "name": "guo-tao",
+    "email": "guo_tao_programmer@163.com"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -76,7 +79,8 @@
     },
     "electronDownload": {
       "cache": ".cache-electron"
-    }
+    },
+    "artifactName": "DocVault-${version}-${os}-${arch}.${ext}"
   },
   "license": "MIT",
   "repository": {
