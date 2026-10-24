@@ -2,7 +2,7 @@
 name = "docvault-mobile"
 version = "1.2.0"
 description = "文档库 Android 端"
-authors = ["guotao"]
+authors = ["gxt2821"]
 edition = "2021"
 rust-version = "1.77"
 
