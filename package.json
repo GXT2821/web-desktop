@@ -78,5 +78,10 @@
       "cache": ".cache-electron"
     }
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/gxt2821/web-desktop.git"
+  },
+  "homepage": "https://gitee.com/gxt2821/web-desktop"
 }
