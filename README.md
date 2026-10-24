@@ -18,6 +18,19 @@
   文件名带日期；导出的文件同时也是 Android 端的导入格式，两边数据模型完全一致。
 - **数据完全在本地**，一个可读的 JSON 文件，随时备份、迁移、手工编辑。
 
+## 下载
+
+打好的安装包在 [Releases](https://gitee.com/gxt2821/web-desktop/releases) 里：
+
+| 平台 | 文件 |
+| --- | --- |
+| macOS（Apple Silicon） | `DocVault-<版本>-arm64.dmg`（超过 100 MB 的按分块上传，见发布说明里的合并命令） |
+| Windows（x64） | `DocVault-<版本>-win-x64-setup.exe`（安装版）、`-portable.exe`（免安装） |
+| Linux（x64） | `DocVault-<版本>.AppImage`、`.deb` |
+| Android 平板 | `DocVault-Android-<版本>-arm64.apk` |
+
+每个版本都附 `SHA256SUMS.txt`，下载后可自行校验。也可以按「打包」一节自己构建。
+
 ## 运行
 
 ```bash
