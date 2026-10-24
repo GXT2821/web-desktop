@@ -44,6 +44,21 @@ npm start
   DOCVAULT_DATA_DIR="/Volumes/U盘/DocVault" npm start
   ```
 
+## 数据与隐私
+
+这个工具没有账号体系，也没有任何统计，你的文档库就是本机的一个 JSON 文件。
+
+- **存什么**：标题、链接、标签、文件夹、备注、星标、创建和打开时间。不保存网页正文、截图或附件。
+- **存哪**：见上一节「数据存在哪」，默认在应用数据目录，文件权限 `0600`（仅自己可读）。
+- **发给谁**：不发给任何人。代码里没有埋点、崩溃上报或自动更新检查，也不向第三方发任何请求——
+  想核实的话，`git grep -n "fetch(\|sentry\|analytics\|telemetry"` 是空的。
+- **什么时候联网**：只有你打开某个文档时，才会去访问那个网址本身。
+- **登录态**：网页的 Cookie / localStorage 由 Electron 按站点保存在本机（和普通浏览器一样），
+  文档库既不读取也不上传。想清掉就在网页里退出登录；直接删应用数据目录也能清，
+  但那会连 `library.json` 一起删掉，先导出一份。
+- **导出**：导出的 JSON 只包含上面那些字段，不含本机路径、账号或环境信息。
+- **删除**：退出应用后删掉 `library.json` 即可，没有云端副本。
+
 ## 快捷键
 
 | 快捷键 | 作用 |
@@ -237,3 +252,6 @@ npm test        # node --test test/store.test.js
 - **打包版双击没反应 / 日志里 `Killed: 9`**：二进制被改过（翻 fuses、改 Info.plist）而没重签，Apple Silicon 会直接杀掉进程。仓库的 `scripts/after-pack.js` 已自动补 ad-hoc 签名；如果你手动改过 fuses 配置，请重新跑一次打包，别只替换 `.app` 里的文件。
 - **终端里出现 `Electron Security Warning (Insecure Content-Security-Policy)`**：开发模式对 `file://` 页面的误报（CSP 写在 HTML 的 meta 里，Electron 只检查响应头），打包后不再出现，可以忽略。
 - **`<webview>` 里页面只显示一小条 / 布局错乱**：外壳的 CSP 必须给 `style-src` 留 `'unsafe-inline'`，否则 Electron 给 webview 元素设的内部样式会被拒绝。
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。

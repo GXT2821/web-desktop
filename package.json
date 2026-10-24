@@ -77,5 +77,6 @@
     "electronDownload": {
       "cache": ".cache-electron"
     }
-  }
+  },
+  "license": "MIT"
 }
