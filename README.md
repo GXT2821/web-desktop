@@ -273,6 +273,7 @@ npm test        # node --test test/*.test.js
 - **启动就报 `Cannot read properties of undefined (reading 'setPath')`**：说明环境里有 `ELECTRON_RUN_AS_NODE=1`，Electron 被当成普通 Node 跑了。这只影响开发模式（`npm start`）：打包版已经把 `RunAsNode` fuse 关掉，会忽略该环境变量。开发时用 `env -u ELECTRON_RUN_AS_NODE npm start`，或在终端里先 `unset ELECTRON_RUN_AS_NODE`。
 - **打包版双击没反应 / 日志里 `Killed: 9`**：二进制被改过（翻 fuses、改 Info.plist）而没重签，Apple Silicon 会直接杀掉进程。仓库的 `scripts/after-pack.js` 已自动补 ad-hoc 签名；如果你手动改过 fuses 配置，请重新跑一次打包，别只替换 `.app` 里的文件。
 - **终端里出现 `Electron Security Warning (Insecure Content-Security-Policy)`**：开发模式对 `file://` 页面的误报（CSP 写在 HTML 的 meta 里，Electron 只检查响应头），打包后不再出现，可以忽略。
+- **网页里自己弹出「文档信息」之类的悬浮卡片**：那是在线文档自己的 UI，靠"鼠标在标题上停留约 0.3 秒"触发，不需要点击——标题条横贯网页顶部，鼠标从标签栏移进正文时很容易路过它。另有两种"幕后触发"：切标签/切应用的瞬间鼠标恰好停在标题上，hover 定时器会在页面隐藏后照跑；本应用切换标签时会把合成指针移到视口外、给页面补发 mouseleave，把这类定时器掐掉。
 - **`<webview>` 里页面只显示一小条 / 布局错乱**：外壳的 CSP 必须给 `style-src` 留 `'unsafe-inline'`，否则 Electron 给 webview 元素设的内部样式会被拒绝。
 ## 许可
 

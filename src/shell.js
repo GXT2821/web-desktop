@@ -184,9 +184,29 @@
     if (activeTab === item) updateToolbar();
   }
 
+  // 网页里的悬浮卡片（文档信息之类）靠 hover 定时器弹出，mouseleave 时取消。
+  // 但标签用 display:none 隐藏，Chromium 不会把 mouseleave 送给被隐藏的页面，
+  // 于是「鼠标扫过标题→立刻切走」时定时器没人取消，卡片在幕后弹出；
+  // 用户切回来一看——"我没碰它怎么弹了"。
+  // 这里补一次"鼠标移出页面"：把合成指针挪到视口外，沿途的 mouseleave 会把
+  // 所有 hover 定时器掐掉。注意不能用 sendInputEvent 的 mouseLeave——实测它
+  // 不产生任何 DOM 事件；也不能挪到页面内某个点，那会唤醒别的悬浮 UI。
+  function sendMouseLeave(tab) {
+    if (!tab || tab.kind !== 'web') return;
+    try {
+      tab.webview.sendInputEvent({ type: 'mouseMove', x: -500, y: -500 });
+    } catch {
+      /* guest 未就绪时忽略 */
+    }
+  }
+
   function activate(item) {
     if (!item) return;
     activeTab = item;
+    // 必须在隐藏之前发：display:none 之后 webContents 收不到输入事件
+    for (const tab of tabs) {
+      if (tab !== item) sendMouseLeave(tab);
+    }
     for (const tab of tabs) {
       tab.tabEl.classList.toggle('active', tab === item);
       tab.viewEl.classList.toggle('active', tab === item);
@@ -510,6 +530,11 @@
     activate(libraryTab);
     bindToolbar();
     document.addEventListener('keydown', onModKey);
+
+    // 切到别的应用时同理：把 hover 定时器掐掉，回来不会看到"无故弹出"的卡片
+    window.addEventListener('blur', () => {
+      for (const tab of tabs) sendMouseLeave(tab);
+    });
 
     // 主进程拦截到网页弹窗 → 在应用内开新标签
     window.api.onOpenTab((url) => openUrl(url));
