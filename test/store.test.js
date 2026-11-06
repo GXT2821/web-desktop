@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { Store, normalizeUrl, fallbackTitle, LIMITS, sanitizeLibrary } = require('../src/store');
+const { Store, normalizeUrl, urlKey, fallbackTitle, LIMITS, sanitizeLibrary } = require('../src/store');
 
 // 每个用例一个独立目录，跑完即删
 function withStore(fn) {
@@ -25,6 +25,71 @@ function withStore(fn) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
+
+// ---------- 相同链接不重复添加 ----------
+
+test('urlKey：同链接不同写法（结尾斜杠、缺协议）归为同一条，但不吞掉路径/查询差异', () => {
+  assert.equal(urlKey('https://x.com/a/'), urlKey('https://x.com/a'));
+  assert.equal(urlKey('x.com/a'), urlKey('https://x.com/a'));
+  assert.notEqual(urlKey('https://x.com/a?x=1'), urlKey('https://x.com/a'));
+  assert.notEqual(urlKey('https://x.com/a/b'), urlKey('https://x.com/a'));
+});
+
+test('addDoc：同一链接重复添加报错，不新增记录', () => {
+  withStore(({ store }) => {
+    const first = store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '需求文档' });
+    assert.equal(store.data.docs.length, 1);
+
+    let caught = null;
+    try {
+      store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '再加一次' });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught, '重复添加应当报错');
+    assert.match(caught.message, /已添加过/);
+    assert.match(caught.message, /需求文档/);
+    assert.equal(caught.code, 'DUPLICATE_URL');
+    assert.equal(caught.existingId, first.id);
+    assert.equal(store.data.docs.length, 1, '重复添加不能产生新记录');
+  });
+});
+
+test('addDoc：同链接的别样写法也算重复；不同链接不受影响', () => {
+  withStore(({ store }) => {
+    store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '原文档' });
+    assert.throws(() => store.addDoc({ url: 'https://kdocs.cn/l/abc/' }), /已添加过/);
+    assert.throws(() => store.addDoc({ url: 'kdocs.cn/l/abc' }), /已添加过/);
+
+    const other = store.addDoc({ url: 'https://kdocs.cn/l/xyz', title: '另一篇' });
+    assert.equal(store.data.docs.length, 2);
+    assert.equal(store.findByUrl('https://kdocs.cn/l/abc/').title, '原文档');
+    assert.equal(store.findByUrl('https://kdocs.cn/l/xyz').id, other.id);
+    assert.equal(store.findByUrl('https://kdocs.cn/l/none'), null);
+  });
+});
+
+test('updateDoc：不能把链接改成库里已有文档的链接', () => {
+  withStore(({ store }) => {
+    const a = store.addDoc({ url: 'https://a.example.com/1', title: 'A' });
+    const b = store.addDoc({ url: 'https://b.example.com/2', title: 'B' });
+
+    let caught = null;
+    try {
+      store.updateDoc(b.id, { url: 'https://a.example.com/1' });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught);
+    assert.equal(caught.code, 'DUPLICATE_URL');
+    assert.equal(store.data.docs.length, 2);
+    assert.equal(store.data.docs.find((d) => d.id === b.id).url, 'https://b.example.com/2', '改链接失败不能改一半');
+
+    // 自己保持原链接不算冲突
+    store.updateDoc(a.id, { url: 'https://a.example.com/1' });
+    assert.equal(store.data.docs.length, 2);
+  });
+});
 
 // ---------- URL 归一化与协议白名单 ----------
 

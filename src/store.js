@@ -17,6 +17,7 @@ const {
   SCHEMA_VERSION,
   LIMITS,
   normalizeUrl,
+  urlKey,
   fallbackTitle,
   sanitizeLibrary,
   emptyLibrary,
@@ -166,4 +167,4 @@ class Store extends LibraryStore {
   }
 }
 
-module.exports = { Store, normalizeUrl, fallbackTitle, LIMITS, SCHEMA_VERSION, sanitizeLibrary };
+module.exports = { Store, normalizeUrl, urlKey, fallbackTitle, LIMITS, SCHEMA_VERSION, sanitizeLibrary };

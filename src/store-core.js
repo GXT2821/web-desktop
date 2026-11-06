@@ -64,6 +64,13 @@
     return parsed.href.slice(0, LIMITS.url);
   }
 
+  // 判重用的链接键。在 normalizeUrl 之后再去掉结尾斜杠，
+  // 让 https://x.com/a 与 https://x.com/a/ 这类同链接的不同写法只算一条。
+  function urlKey(raw) {
+    const href = normalizeUrl(raw);
+    return href.length > 1 && href.endsWith('/') ? href.slice(0, -1) : href;
+  }
+
   // 由链接推导一个可读的默认标题（域名 + 路径尾段）
   function fallbackTitle(url) {
     try {
@@ -197,8 +204,22 @@
 
     // ---------- 文档 ----------
 
+    // 按链接查重（同链接的不同写法也会命中，见 urlKey）
+    findByUrl(url) {
+      const key = urlKey(url);
+      return this.data.docs.find((d) => urlKey(d.url) === key) || null;
+    }
+
     addDoc(input = {}) {
       const url = normalizeUrl(input.url);
+      // 同链接不重复添加：直接报错，界面会显示已存在那条的标题
+      const existing = this.findByUrl(url);
+      if (existing) {
+        const err = new Error(`该链接已添加过：${existing.title}`);
+        err.code = 'DUPLICATE_URL';
+        err.existingId = existing.id;
+        throw err;
+      }
       const doc = {
         id: makeId('d'),
         title: cleanText(input.title, LIMITS.title) || fallbackTitle(url),
@@ -223,7 +244,17 @@
       const doc = this.data.docs.find((d) => d.id === id);
       if (!doc) throw new Error('文档不存在，可能已被删除');
 
-      if (patch.url !== undefined) doc.url = normalizeUrl(patch.url);
+      if (patch.url !== undefined) {
+        const nextUrl = normalizeUrl(patch.url);
+        const clash = this.findByUrl(nextUrl);
+        if (clash && clash.id !== id) {
+          const err = new Error(`该链接已被「${clash.title}」使用`);
+          err.code = 'DUPLICATE_URL';
+          err.existingId = clash.id;
+          throw err;
+        }
+        doc.url = nextUrl;
+      }
       if (patch.title !== undefined) {
         const title = cleanText(patch.title, LIMITS.title);
         doc.title = title || fallbackTitle(doc.url);
@@ -340,6 +371,7 @@
     makeId,
     cleanText,
     normalizeUrl,
+    urlKey,
     fallbackTitle,
     normalizeTags,
     collectFolderIds,
