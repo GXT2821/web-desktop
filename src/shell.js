@@ -130,6 +130,7 @@
       item.title = pageTitle;
       item.label.textContent = pageTitle;
       tabEl.title = item.currentUrl;
+      scheduleRelayout();
     });
 
     webview.addEventListener('did-fail-load', (event) => {
@@ -141,6 +142,7 @@
     item.bindWebviewEvents = bindWebviewEvents;
 
     tabs.push(item);
+    scheduleRelayout();
     dom.tabbar.append(tabEl);
     dom.content.append(viewEl);
     return item;
@@ -245,6 +247,104 @@
       .forEach(detachWebview);
   }
 
+  // ---- 标签溢出：不滚动、不显示滚动条；最早的隐藏，右上下拉按钮里找回 ----
+  const TAB_GAP = 6;
+  let overflowHidden = [];
+  let overflowMenuEl = null;
+  let relayoutQueued = false;
+
+  function scheduleRelayout() {
+    if (relayoutQueued) return;
+    relayoutQueued = true;
+    requestAnimationFrame(() => {
+      relayoutQueued = false;
+      relayoutTabs();
+    });
+  }
+
+  function closeOverflowMenu() {
+    if (overflowMenuEl) {
+      overflowMenuEl.remove();
+      overflowMenuEl = null;
+    }
+  }
+
+  function openOverflowMenu() {
+    closeOverflowMenu();
+    if (!overflowHidden.length) return;
+    const menu = el('div', { class: 'select-menu tab-overflow-menu', role: 'listbox' });
+    // 最近打开的排前面，方便点回
+    for (const item of [...overflowHidden].reverse()) {
+      const row = el('button', {
+        class: 'select-menu-item',
+        role: 'option',
+        type: 'button',
+        title: item.currentUrl || item.url,
+        text: item.title,
+      });
+      row.addEventListener('click', () => {
+        closeOverflowMenu();
+        activate(item);
+      });
+      menu.append(row);
+    }
+    document.body.append(menu);
+    const r = dom.tabOverflowBtn.getBoundingClientRect();
+    menu.style.top = `${Math.round(r.bottom + 6)}px`;
+    menu.style.left = `${Math.round(Math.max(8, r.right - menu.offsetWidth))}px`;
+    overflowMenuEl = menu;
+
+    const onAway = (event) => {
+      if (!overflowMenuEl) {
+        document.removeEventListener('pointerdown', onAway, true);
+        return;
+      }
+      if (event.target.closest('.tab-overflow-menu') || event.target.closest('#tabOverflowBtn')) return;
+      closeOverflowMenu();
+      document.removeEventListener('pointerdown', onAway, true);
+    };
+    document.addEventListener('pointerdown', onAway, true);
+  }
+
+  function relayoutTabs() {
+    closeOverflowMenu();
+    for (const tab of tabs) tab.tabEl.classList.remove('tab-hidden');
+    const web = tabs.filter((t) => t.kind === 'web');
+    if (!web.length) {
+      dom.tabOverflowBtn.hidden = true;
+      overflowHidden = [];
+      return;
+    }
+
+    // 必须先全部显示再量宽度（隐藏态 offsetWidth 为 0）
+    const widths = new Map(tabs.map((t) => [t, t.tabEl.offsetWidth + TAB_GAP]));
+    const budgetOf = (btnShown) =>
+      dom.tabbar.clientWidth - (btnShown ? dom.tabOverflowBtn.offsetWidth + TAB_GAP : 0);
+
+    // 固定标签与当前标签必占位；其余从最新往旧放，放不下（最早开的）进隐藏
+    const pick = (budget) => {
+      let used = libraryTab ? widths.get(libraryTab) : 0;
+      if (activeTab && activeTab.kind === 'web') used += widths.get(activeTab);
+      const hidden = [];
+      for (const t of [...web].reverse()) {
+        if (t === activeTab) continue;
+        if (used + widths.get(t) <= budget) used += widths.get(t);
+        else hidden.push(t);
+      }
+      return hidden.reverse();
+    };
+
+    let hidden = pick(budgetOf(false));
+    if (hidden.length) {
+      dom.tabOverflowBtn.hidden = false;
+      hidden = pick(budgetOf(true));
+    }
+    for (const t of hidden) t.tabEl.classList.add('tab-hidden');
+    overflowHidden = hidden;
+    dom.tabOverflowBtn.hidden = hidden.length === 0;
+    dom.tabOverflowCount.textContent = hidden.length ? String(hidden.length) : '';
+  }
+
   function activate(item) {
     if (!item) return;
     activeTab = item;
@@ -268,6 +368,7 @@
     }
     enforceLiveLimit();
     item.tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    scheduleRelayout();
   }
 
   function closeTab(item) {
@@ -278,6 +379,7 @@
     item.tabEl.remove();
     item.viewEl.remove(); // 移除 <webview> 会销毁对应 guest，链接与登录态仍留在 session 里
     if (activeTab === item) activate(tabs[Math.min(idx, tabs.length - 1)] || libraryTab);
+    else scheduleRelayout();
   }
 
   // 打开已收藏的文档（同一个文档只开一个标签）
@@ -502,6 +604,7 @@
         /* 隐私模式等场景下写不了，忽略 */
       }
     }
+    scheduleRelayout(); // 侧栏宽度变化会改变标签区可用宽度
   }
 
   function bindSidebar() {
@@ -565,6 +668,8 @@
     dom.addr = document.getElementById('addr');
     dom.navBack = document.getElementById('navBack');
     dom.navReload = document.getElementById('navReload');
+    dom.tabOverflowBtn = document.getElementById('tabOverflowBtn');
+    dom.tabOverflowCount = document.getElementById('tabOverflowCount');
     dom.navCopy = document.getElementById('navCopy');
     dom.navExternal = document.getElementById('navExternal');
   }
@@ -578,6 +683,8 @@
     activate(libraryTab);
     bindToolbar();
     document.addEventListener('keydown', onModKey);
+    dom.tabOverflowBtn.addEventListener('click', () => (overflowMenuEl ? closeOverflowMenu() : openOverflowMenu()));
+    window.addEventListener('resize', scheduleRelayout);
 
     // 切到别的应用时同理：把 hover 定时器掐掉，回来不会看到"无故弹出"的卡片
     window.addEventListener('blur', () => {

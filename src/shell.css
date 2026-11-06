@@ -727,15 +727,64 @@ svg {
   border-bottom: 1px solid var(--border);
 }
 
-/* 标签多的时候只让标签区横向滚动，下载按钮固定在右侧 */
+/* 标签区不显示滚动条：超出的标签由「隐藏最早 + 右侧下拉找回」接管（见 shell.js） */
 .tabs {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
+}
+
+/* 文档库标签钉在最左，不跟着其它标签移动 */
+.tab.tab-fixed {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  background: var(--panel);
+}
+
+.tab.tab-fixed:hover {
+  background: var(--hover);
+}
+
+.tab.tab-fixed.active {
+  background: var(--accent-soft);
+}
+
+/* 溢出时被隐藏的标签（保留在 DOM，下拉里能找回） */
+.tab.tab-hidden {
+  display: none;
+}
+
+/* 标签溢出下拉按钮：带被隐藏数量 */
+.tab-overflow {
+  width: auto;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 7px;
+  gap: 1px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.tab-overflow:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tab-overflow .tab-overflow-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  min-width: 12px;
+  text-align: center;
 }
 
 .tab-actions {
