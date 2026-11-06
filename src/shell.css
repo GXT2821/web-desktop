@@ -754,6 +754,11 @@ svg {
   background: var(--accent-soft);
 }
 
+/* 量宽度的瞬间不允许 flex 压缩，保证量到的是自然宽度 */
+.tabs.measuring .tab {
+  flex-shrink: 0;
+}
+
 /* 溢出时被隐藏的标签（保留在 DOM，下拉里能找回） */
 .tab.tab-hidden {
   display: none;

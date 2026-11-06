@@ -316,29 +316,38 @@
       return;
     }
 
-    // 必须先全部显示再量宽度（隐藏态 offsetWidth 为 0）
+    // 量宽度期间禁止 flex 压缩，否则挤在一起时量到的是"被压扁的宽度"，
+    // 排布结果就会偏；隐藏态宽度为 0，所以先全部显示再量
+    dom.tabbar.classList.add('measuring');
     const widths = new Map(tabs.map((t) => [t, t.tabEl.offsetWidth + TAB_GAP]));
-    const budgetOf = (btnShown) =>
-      dom.tabbar.clientWidth - (btnShown ? dom.tabOverflowBtn.offsetWidth + TAB_GAP : 0);
+    dom.tabbar.classList.remove('measuring');
 
-    // 固定标签与当前标签必占位；其余从最新往旧放，放不下（最早开的）进隐藏
-    const pick = (budget) => {
+    // 可用宽度就是标签区自身（下拉按钮是它的兄弟节点，不占它的宽度，不能再扣一次）
+    const budget = dom.tabbar.clientWidth;
+
+    // 固定标签与当前标签必占位；其余从最新往旧排：
+    // 放得下按自然宽度放；只剩零头时宁可塞一个让它收缩显示（不整条藏起来，
+    // 否则会出现"右边一大片空白却在隐藏标签"）；零头都不够才隐藏。
+    const MIN_FIT = 96; // 再窄连标题都看不清，就不硬塞了
+    const pick = () => {
       let used = libraryTab ? widths.get(libraryTab) : 0;
       if (activeTab && activeTab.kind === 'web') used += widths.get(activeTab);
       const hidden = [];
       for (const t of [...web].reverse()) {
         if (t === activeTab) continue;
-        if (used + widths.get(t) <= budget) used += widths.get(t);
-        else hidden.push(t);
+        const w = widths.get(t);
+        if (used + w <= budget) {
+          used += w;
+        } else if (used + MIN_FIT <= budget) {
+          used = budget; // 塞进零头，靠 flex 收缩显示
+        } else {
+          hidden.push(t);
+        }
       }
       return hidden.reverse();
     };
 
-    let hidden = pick(budgetOf(false));
-    if (hidden.length) {
-      dom.tabOverflowBtn.hidden = false;
-      hidden = pick(budgetOf(true));
-    }
+    const hidden = pick();
     for (const t of hidden) t.tabEl.classList.add('tab-hidden');
     overflowHidden = hidden;
     dom.tabOverflowBtn.hidden = hidden.length === 0;
@@ -685,6 +694,10 @@
     document.addEventListener('keydown', onModKey);
     dom.tabOverflowBtn.addEventListener('click', () => (overflowMenuEl ? closeOverflowMenu() : openOverflowMenu()));
     window.addEventListener('resize', scheduleRelayout);
+    // 标签区宽度变化的兜底来源（按钮显隐、动作区变化等都可能改变可用宽度）
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(scheduleRelayout).observe(dom.tabbar);
+    }
 
     // 切到别的应用时同理：把 hover 定时器掐掉，回来不会看到"无故弹出"的卡片
     window.addEventListener('blur', () => {
