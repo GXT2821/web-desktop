@@ -35,7 +35,7 @@ test('urlKey：同链接不同写法（结尾斜杠、缺协议）归为同一�
   assert.notEqual(urlKey('https://x.com/a/b'), urlKey('https://x.com/a'));
 });
 
-test('addDoc：同一链接重复添加报错，不新增记录', () => {
+test('addDoc：同一目录下同链接重复添加报错，不新增记录', () => {
   withStore(({ store }) => {
     const first = store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '需求文档' });
     assert.equal(store.data.docs.length, 1);
@@ -47,7 +47,7 @@ test('addDoc：同一链接重复添加报错，不新增记录', () => {
       caught = err;
     }
     assert.ok(caught, '重复添加应当报错');
-    assert.match(caught.message, /已添加过/);
+    assert.match(caught.message, /相同链接/);
     assert.match(caught.message, /需求文档/);
     assert.equal(caught.code, 'DUPLICATE_URL');
     assert.equal(caught.existingId, first.id);
@@ -55,11 +55,32 @@ test('addDoc：同一链接重复添加报错，不新增记录', () => {
   });
 });
 
+test('addDoc：重复判断只看同一目录——不同文件夹允许同链接各存一份', () => {
+  withStore(({ store }) => {
+    const f1 = store.addFolder('工作', null);
+    const f2 = store.addFolder('个人', null);
+    store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '工作里的', folderId: f1.id });
+
+    // 同一目录 → 拒绝
+    assert.throws(() => store.addDoc({ url: 'https://kdocs.cn/l/abc', folderId: f1.id }), /相同链接/);
+    // 另一个目录 → 允许
+    const inF2 = store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '个人里的', folderId: f2.id });
+    assert.equal(store.data.docs.length, 2);
+    // 未分类（folderId 为空）也算一个独立目录
+    const unfiled = store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '未分类的' });
+    assert.equal(store.data.docs.length, 3);
+    assert.equal(store.findDuplicate('https://kdocs.cn/l/abc/', f1.id).title, '工作里的');
+    assert.equal(store.findDuplicate('https://kdocs.cn/l/abc', f2.id).id, inF2.id);
+    assert.equal(store.findDuplicate('https://kdocs.cn/l/abc', null).id, unfiled.id);
+    assert.equal(store.findDuplicate('https://kdocs.cn/l/abc', 'no-such-folder'), null);
+  });
+});
+
 test('addDoc：同链接的别样写法也算重复；不同链接不受影响', () => {
   withStore(({ store }) => {
     store.addDoc({ url: 'https://kdocs.cn/l/abc', title: '原文档' });
-    assert.throws(() => store.addDoc({ url: 'https://kdocs.cn/l/abc/' }), /已添加过/);
-    assert.throws(() => store.addDoc({ url: 'kdocs.cn/l/abc' }), /已添加过/);
+    assert.throws(() => store.addDoc({ url: 'https://kdocs.cn/l/abc/' }), /相同链接/);
+    assert.throws(() => store.addDoc({ url: 'kdocs.cn/l/abc' }), /相同链接/);
 
     const other = store.addDoc({ url: 'https://kdocs.cn/l/xyz', title: '另一篇' });
     assert.equal(store.data.docs.length, 2);
@@ -80,13 +101,24 @@ test('updateDoc：不能把链接改成库里已有文档的链接', () => {
     } catch (err) {
       caught = err;
     }
-    assert.ok(caught);
+    assert.ok(caught, '同目录下改成已有链接应当被拒');
     assert.equal(caught.code, 'DUPLICATE_URL');
     assert.equal(store.data.docs.length, 2);
     assert.equal(store.data.docs.find((d) => d.id === b.id).url, 'https://b.example.com/2', '改链接失败不能改一半');
 
     // 自己保持原链接不算冲突
     store.updateDoc(a.id, { url: 'https://a.example.com/1' });
+    assert.equal(store.data.docs.length, 2);
+  });
+});
+
+test('updateDoc：不同目录的同链接不冲突', () => {
+  withStore(({ store }) => {
+    const f1 = store.addFolder('A', null);
+    const f2 = store.addFolder('B', null);
+    store.addDoc({ url: 'https://x.example.com/1', title: 'A 里的', folderId: f1.id });
+    const b = store.addDoc({ url: 'https://y.example.com/2', title: 'B 里的', folderId: f2.id });
+    store.updateDoc(b.id, { url: 'https://x.example.com/1' }); // 跨目录，应当允许
     assert.equal(store.data.docs.length, 2);
   });
 });

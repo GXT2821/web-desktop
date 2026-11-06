@@ -204,18 +204,29 @@
 
     // ---------- 文档 ----------
 
-    // 按链接查重（同链接的不同写法也会命中，见 urlKey）
+    // 按链接查库（不区分文件夹，任何目录里有就算）
     findByUrl(url) {
       const key = urlKey(url);
       return this.data.docs.find((d) => urlKey(d.url) === key) || null;
     }
 
+    // 重复判断只看同一目录：同一条链接允许在不同文件夹各存一份。
+    // 同链接的不同写法（结尾斜杠、缺协议）也算同一条，见 urlKey。
+    findDuplicate(url, folderId) {
+      const key = urlKey(url);
+      const fid = folderId || null;
+      return (
+        this.data.docs.find((d) => urlKey(d.url) === key && (d.folderId || null) === fid) || null
+      );
+    }
+
     addDoc(input = {}) {
       const url = normalizeUrl(input.url);
-      // 同链接不重复添加：直接报错，界面会显示已存在那条的标题
-      const existing = this.findByUrl(url);
+      const folderId = this.data.folders.some((f) => f.id === input.folderId) ? input.folderId : null;
+      // 同目录下同链接不重复添加：报错并指出已存在那条的标题
+      const existing = this.findDuplicate(url, folderId);
       if (existing) {
-        const err = new Error(`该链接已添加过：${existing.title}`);
+        const err = new Error(`该目录下已有相同链接：${existing.title}`);
         err.code = 'DUPLICATE_URL';
         err.existingId = existing.id;
         throw err;
@@ -224,7 +235,7 @@
         id: makeId('d'),
         title: cleanText(input.title, LIMITS.title) || fallbackTitle(url),
         url,
-        folderId: this.data.folders.some((f) => f.id === input.folderId) ? input.folderId : null,
+        folderId,
         tags: normalizeTags(input.tags),
         note: cleanText(input.note, LIMITS.note),
         star: input.star === true,
@@ -246,9 +257,10 @@
 
       if (patch.url !== undefined) {
         const nextUrl = normalizeUrl(patch.url);
-        const clash = this.findByUrl(nextUrl);
+        // 同目录下不允许两条同链接（跨目录可以）
+        const clash = this.findDuplicate(nextUrl, doc.folderId);
         if (clash && clash.id !== id) {
-          const err = new Error(`该链接已被「${clash.title}」使用`);
+          const err = new Error(`该链接已被同目录的「${clash.title}」使用`);
           err.code = 'DUPLICATE_URL';
           err.existingId = clash.id;
           throw err;

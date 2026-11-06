@@ -251,6 +251,7 @@
   const TAB_GAP = 6;
   let overflowHidden = [];
   let overflowMenuEl = null;
+  let overflowCleanup = null;
   let relayoutQueued = false;
 
   function scheduleRelayout() {
@@ -263,6 +264,10 @@
   }
 
   function closeOverflowMenu() {
+    if (overflowCleanup) {
+      overflowCleanup();
+      overflowCleanup = null;
+    }
     if (overflowMenuEl) {
       overflowMenuEl.remove();
       overflowMenuEl = null;
@@ -294,16 +299,39 @@
     menu.style.left = `${Math.round(Math.max(8, r.right - menu.offsetWidth))}px`;
     overflowMenuEl = menu;
 
+    // 关闭时机两条：
+    // 1) 点菜单/按钮以外的地方（宿主 DOM 内）；
+    // 2) 指针离开菜单+按钮区域一小段时间——点进网页（webview）不会给宿主
+    //    发 pointerdown，"点外面关闭"对网页区无效，只能靠移开即关兜底。
+    let leaveTimer = null;
+    const cancel = () => {
+      clearTimeout(leaveTimer);
+      leaveTimer = null;
+    };
+    const arm = () => {
+      clearTimeout(leaveTimer);
+      leaveTimer = setTimeout(() => closeOverflowMenu(), 300);
+    };
     const onAway = (event) => {
-      if (!overflowMenuEl) {
-        document.removeEventListener('pointerdown', onAway, true);
-        return;
-      }
       if (event.target.closest('.tab-overflow-menu') || event.target.closest('#tabOverflowBtn')) return;
       closeOverflowMenu();
-      document.removeEventListener('pointerdown', onAway, true);
     };
+    const cleanup = () => {
+      clearTimeout(leaveTimer);
+      document.removeEventListener('pointerdown', onAway, true);
+      menu.removeEventListener('pointerenter', cancel);
+      menu.removeEventListener('pointerleave', arm);
+      dom.tabOverflowBtn.removeEventListener('pointerenter', cancel);
+      dom.tabOverflowBtn.removeEventListener('pointerleave', arm);
+    };
+    overflowCleanup = cleanup;
+    menu.addEventListener('pointerenter', cancel);
+    menu.addEventListener('pointerleave', arm);
+    dom.tabOverflowBtn.addEventListener('pointerenter', cancel);
+    dom.tabOverflowBtn.addEventListener('pointerleave', arm);
     document.addEventListener('pointerdown', onAway, true);
+    // 注意：这里不预启动计时。只有指针真的离开按钮/菜单区域才开始计时，
+    // 否则指针停在按钮上不动菜单也会自己关。
   }
 
   function relayoutTabs() {

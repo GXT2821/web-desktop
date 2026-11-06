@@ -162,8 +162,9 @@
     // 合并：文件夹按 id 去重，文档按 id 或链接去重
     const folderIds = new Set(store.data.folders.map((f) => f.id));
     const docIds = new Set(store.data.docs.map((d) => d.id));
-    // 判重键与桌面端添加文档一致（urlKey：规范化 + 去结尾斜杠）
-    const docUrls = new Set(store.data.docs.map((d) => core.urlKey(d.url)));
+    // 判重键与桌面端添加文档一致：同目录 + 同链接（urlKey 规范化）才算重复
+    const urlOf = (d) => `${core.urlKey(d.url)}|${d.folderId || ''}`;
+    const docUrls = new Set(store.data.docs.map(urlOf));
 
     let addedFolders = 0;
     for (const folder of incoming.folders) {
@@ -177,13 +178,13 @@
 
     let addedDocs = 0;
     for (const doc of incoming.docs) {
-      if (docIds.has(doc.id) || docUrls.has(core.urlKey(doc.url))) continue;
+      if (docIds.has(doc.id) || docUrls.has(urlOf(doc))) continue;
       store.data.docs.push({
         ...doc,
         folderId: doc.folderId && folderIds.has(doc.folderId) ? doc.folderId : null,
       });
       docIds.add(doc.id);
-      docUrls.add(core.urlKey(doc.url));
+      docUrls.add(urlOf(doc));
       addedDocs += 1;
     }
 
