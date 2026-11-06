@@ -38,15 +38,16 @@
     dom.tabbar.append(tabEl);
   }
 
-  function createWebTab({ url, title, docId }) {
-    const webview = document.createElement('webview');
-    webview.setAttribute('src', url);
-    // 允许 popup 才能让 window.open 走到主进程的 setWindowOpenHandler（改为应用内新标签）
-    webview.setAttribute('allowpopups', '');
+  // 同时存活的 webview 上限。每个 <webview> 都是一个完整的渲染进程，
+  // 不设上限的话开几十个标签会把内存吃满、整个程序发卡。
+  // 超出上限时把最久没用的网页标签"休眠"（销毁 guest、释放内存），切回来自动重新加载。
+  const MAX_LIVE_WEBVIEWS = 6;
 
+  function createWebTab({ url, title, docId }) {
+    // webview 惰性创建：首次激活才挂载加载（见 attachWebview / detachWebview）
     const loadbar = el('div', { class: 'loadbar', hidden: true });
     const errorBox = el('div', { class: 'view-error', hidden: true });
-    const viewEl = el('div', { class: 'view webview-wrap' }, [webview, loadbar, errorBox]);
+    const viewEl = el('div', { class: 'view webview-wrap' }, [loadbar, errorBox]);
 
     const label = el('span', { class: 'tab-label', text: title || hostOf(url) });
     const tabEl = el('div', { class: 'tab', role: 'tab', tabindex: '0', title: url }, [
@@ -63,9 +64,10 @@
       currentUrl: url,
       docId: docId || null,
       ready: false,
+      lastActiveAt: 0,
       tabEl,
       viewEl,
-      webview,
+      webview: null,
       loadbar,
       errorBox,
       label,
@@ -86,7 +88,8 @@
       }
     });
 
-    // ---- 网页事件 ----
+    // ---- 网页事件（webview 创建时才绑定） ----
+    const bindWebviewEvents = (webview) => {
     webview.addEventListener('dom-ready', () => {
       item.ready = true;
       updateToolbar();
@@ -134,6 +137,8 @@
       if (event.errorCode === -3) return; // -3 = ABORTED，通常是用户主动打断，忽略
       showLoadError(item, event);
     });
+    };
+    item.bindWebviewEvents = bindWebviewEvents;
 
     tabs.push(item);
     dom.tabbar.append(tabEl);
@@ -192,12 +197,52 @@
   // 所有 hover 定时器掐掉。注意不能用 sendInputEvent 的 mouseLeave——实测它
   // 不产生任何 DOM 事件；也不能挪到页面内某个点，那会唤醒别的悬浮 UI。
   function sendMouseLeave(tab) {
-    if (!tab || tab.kind !== 'web') return;
+    if (!tab || tab.kind !== 'web' || !tab.webview) return;
     try {
       tab.webview.sendInputEvent({ type: 'mouseMove', x: -500, y: -500 });
     } catch {
       /* guest 未就绪时忽略 */
     }
+  }
+
+  // 惰性创建 webview：首次激活（或休眠后回来）才真正加载页面
+  function attachWebview(item) {
+    if (item.webview) return item.webview;
+    const webview = document.createElement('webview');
+    webview.setAttribute('src', item.currentUrl || item.url);
+    // 允许 popup 才能让 window.open 走到主进程的 setWindowOpenHandler（改为应用内新标签）
+    webview.setAttribute('allowpopups', '');
+    item.webview = webview;
+    item.viewEl.insertBefore(webview, item.loadbar);
+    item.loadbar.hidden = false;
+    item.bindWebviewEvents(webview);
+    return webview;
+  }
+
+  // 休眠：销毁 guest 释放内存。标签、标题、当前链接都保留，切回来自动重载
+  function detachWebview(item) {
+    if (!item.webview) return;
+    try {
+      item.webview.remove();
+    } catch {
+      /* 忽略 */
+    }
+    item.webview = null;
+    item.ready = false;
+    item.loadbar.hidden = true;
+    item.tabEl.classList.remove('busy');
+  }
+
+  // 超出上限时，把最久没激活的网页标签休眠掉
+  function enforceLiveLimit() {
+    const live = tabs.filter((t) => t.webview);
+    const excess = live.length - MAX_LIVE_WEBVIEWS;
+    if (excess <= 0) return;
+    live
+      .filter((t) => t !== activeTab)
+      .sort((a, b) => (a.lastActiveAt || 0) - (b.lastActiveAt || 0))
+      .slice(0, excess)
+      .forEach(detachWebview);
   }
 
   function activate(item) {
@@ -213,12 +258,15 @@
     }
     updateToolbar();
     if (item.kind === 'web') {
+      item.lastActiveAt = Date.now();
       try {
+        attachWebview(item);
         item.webview.focus();
       } catch {
         /* guest 还没准备好时忽略 */
       }
     }
+    enforceLiveLimit();
     item.tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
@@ -484,7 +532,7 @@
     } else if (key === 'w') {
       if (activeTab && activeTab.kind === 'web') closeTab(activeTab);
     } else if (key === 'r') {
-      if (activeTab && activeTab.kind === 'web') {
+      if (activeTab && activeTab.kind === 'web' && activeTab.webview) {
         try {
           activeTab.webview.reload();
         } catch {
