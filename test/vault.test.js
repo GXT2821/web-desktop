@@ -282,6 +282,30 @@ test('U 盘绑定：旧保险库解锁后就地升级为绑定', () =>
     }
   }));
 
+test('U 盘绑定：只认卷序列号，换盘符/换路径不影响解锁', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const drive = require('../src/token/drive');
+    const current = drive.identify(path.join(tokenDir, 'probe'));
+    if (!current) return; // 无卷序列号时跳过
+    const token = await soft.createToken(tokenDir, '123456', { drive: current });
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: token.path, pin: '123456', library: SAMPLE });
+    vault.lock();
+
+    // 模拟盘符变化：令牌被挪到同一个卷的另一个挂载目录，vault.json 里的旧路径失效
+    const movedDir = path.join(tokenDir, 'MOUNT-E');
+    fs.mkdirSync(movedDir);
+    fs.renameSync(token.path, path.join(movedDir, 'DocVault.key'));
+
+    // 旧路径读不到，但按序列号扫描能找回来；盘符/路径不参与身份判定
+    assert.equal(vault.status().locked, true);
+    assert.equal(vault.boundTokenStatus().present, true, '扫描应能找到移动后的令牌');
+    assert.equal(vault.tokenPath(), path.join(movedDir, 'DocVault.key'), '重置用的路径也应重新解析');
+    await vault.unlock({ pin: '123456' });
+    assert.equal(vault.status().locked, false);
+    assert.deepEqual(vault.codec().decode(fs.readFileSync(vault.encFile)), SAMPLE);
+  }));
+
 // ---------- 保险库：启用 / 解锁 / 锁定 ----------
 
 test('保险库：启用后数据是密文，重启后凭令牌+PIN 解回原样', () =>

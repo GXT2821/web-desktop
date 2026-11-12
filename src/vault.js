@@ -420,11 +420,15 @@ class Vault {
     return library;
   }
 
-  // 重置时用：返回绑定令牌的文件路径（未启用或元数据损坏时返回 null）
+  // 重置时用：返回绑定令牌的文件路径（未启用或元数据损坏时返回 null）。
+  // 盘符可能变化：旧路径失效时按序列号重新扫描，不依赖记录下来的盘符。
   tokenPath() {
     if (!this.isEnabled()) return null;
     try {
-      return this.#meta().token.path || null;
+      const meta = this.#meta();
+      if (meta.token.path && fs.existsSync(meta.token.path)) return meta.token.path;
+      const info = provider.findBySerial(meta.token.serial);
+      return info ? info.path : meta.token.path || null;
     } catch {
       return null;
     }
