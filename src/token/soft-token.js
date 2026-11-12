@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { promisify } = require('util');
+const drive = require('./drive');
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -91,9 +92,12 @@ async function createToken(dir, pin, options = {}) {
   if (fs.existsSync(file) && !force) {
     throw new Error('这个位置已经有一枚令牌（DocVault.key）。继续会覆盖它，请确认后再试');
   }
+  // 绑定到"这张 U 盘"的卷序列号；识别不到时退化为不绑定（保持可用）
+  const driveInfo = Object.hasOwn(options, 'drive') ? options.drive : drive.identify(file);
 
   const serial = crypto.randomBytes(8).toString('hex');
   const secret = crypto.randomBytes(32);
+  const driveBinding = driveInfo ? { volumeSerial: driveInfo.volumeSerial } : null;
   let token;
   if (pinFree) {
     token = {
@@ -103,6 +107,7 @@ async function createToken(dir, pin, options = {}) {
       createdAt: Date.now(),
       pinFree: true,
       secret: secret.toString('hex'),
+      ...(driveBinding ? { drive: driveBinding } : {}),
     };
   } else {
     const salt = crypto.randomBytes(16).toString('hex');
@@ -115,12 +120,13 @@ async function createToken(dir, pin, options = {}) {
       kdf: { ...KDF, salt },
       wrappedSecret: seal(key, secret),
       attemptsLeft: MAX_ATTEMPTS,
+      ...(driveBinding ? { drive: driveBinding } : {}),
     };
     key.fill(0);
   }
   secret.fill(0);
   writeJsonAtomic(file, token);
-  return { path: file, serial, pinFree };
+  return { path: file, serial, pinFree, drive: driveBinding };
 }
 
 // 只读元信息（不碰 secret），用于发现/展示
@@ -135,6 +141,7 @@ function readTokenInfo(file) {
       type: 'soft',
       serial: raw.serial,
       pinFree,
+      boundDrive: raw.drive && raw.drive.volumeSerial ? raw.drive.volumeSerial : null,
       attemptsLeft: pinFree ? MAX_ATTEMPTS : attempts,
       locked: pinFree ? false : attempts <= 0,
       createdAt: raw.createdAt || 0,
@@ -145,12 +152,13 @@ function readTokenInfo(file) {
 }
 
 // 由 secret 构造会话（HMAC 应答 + close 清零），PIN / 免 PIN 两种令牌共用
-function makeSession(serial, secret, pinFree) {
+function makeSession(serial, secret, pinFree, driveId = null) {
   let closed = false;
   return {
     type: 'soft',
     serial,
     pinFree,
+    driveId,
     // 与硬件 U盾的 HMAC 命令同形：challenge → 32 字节应答
     hmac(challenge) {
       if (closed) throw new Error('令牌会话已关闭');
@@ -173,10 +181,20 @@ async function openToken(file, pin) {
   const raw = readTokenFile(file);
   if (!raw) throw new Error('令牌文件无效或已损坏');
 
+  // U 盘绑定：令牌记录的卷序列号必须与当前所在盘一致。
+  // 把 DocVault.key 拷到另一张 U 盘、或把盘符挂到别的设备上，这里就会拒绝。
+  const bound = raw.drive && raw.drive.volumeSerial;
+  if (bound) {
+    const current = drive.identify(file);
+    if (!current || current.volumeSerial !== bound) {
+      throw new Error('这枚令牌与当前 U 盘不匹配（U 盘编码不一致），可能是从别的 U 盘复制来的');
+    }
+  }
+
   if (raw.pinFree === true) {
     const secret = Buffer.from(raw.secret, 'hex');
     if (secret.length !== 32) throw new Error('免 PIN 令牌的密钥无效');
-    return makeSession(raw.serial, secret, true);
+    return makeSession(raw.serial, secret, true, bound || null);
   }
 
   assertPin(pin);
@@ -210,7 +228,24 @@ async function openToken(file, pin) {
     }
   }
 
-  return makeSession(raw.serial, secret, false);
+  return makeSession(raw.serial, secret, false, bound || null);
+}
+
+// 给旧令牌补上 U 盘绑定（迁移用）：成功返回卷序列号，失败返回 null。
+// 只在令牌文件里还没有 drive 字段时写入一次。
+function bindDrive(file) {
+  try {
+    const raw = readTokenFile(file);
+    if (!raw) return null;
+    if (raw.drive && raw.drive.volumeSerial) return raw.drive.volumeSerial;
+    const info = drive.identify(file);
+    if (!info || !info.volumeSerial) return null;
+    raw.drive = { volumeSerial: info.volumeSerial };
+    writeJsonAtomic(file, raw);
+    return info.volumeSerial;
+  } catch {
+    return null;
+  }
 }
 
 module.exports = {
@@ -220,4 +255,5 @@ module.exports = {
   createToken,
   readTokenInfo,
   openToken,
+  bindDrive,
 };

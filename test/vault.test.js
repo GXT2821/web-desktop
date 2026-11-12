@@ -212,6 +212,76 @@ test('发现：扫描目录里的令牌能被找到，按序列号定位', () =>
     assert.equal(provider.findBySerial('不存在的序列号'), null);
   }));
 
+// ---------- U 盘绑定 ----------
+
+test('U 盘绑定：令牌记录卷序列号，换到别的盘打不开', () =>
+  withEnv(async ({ tokenDir }) => {
+    const bound = await soft.createToken(tokenDir, '123456', { drive: { volumeSerial: 'AAAA-BBBB' } });
+    assert.equal(soft.readTokenInfo(bound.path).boundDrive, 'AAAA-BBBB');
+    // 当前测试目录在 C: 盘，卷序列号不可能正好是 AAAA-BBBB
+    await assert.rejects(() => soft.openToken(bound.path, '123456'), /U 盘不匹配|U 盘编码/);
+  }));
+
+test('U 盘绑定：与所在盘一致时可以正常打开', () =>
+  withEnv(async ({ tokenDir }) => {
+    const drive = require('../src/token/drive');
+    const probe = path.join(tokenDir, 'probe');
+    const current = drive.identify(probe);
+    if (!current) {
+      // 无卷序列号的平台（如部分 Linux 容器）跳过
+      return;
+    }
+    const token = await soft.createToken(tokenDir, '123456', { drive: current });
+    const session = await soft.openToken(token.path, '123456');
+    assert.equal(session.driveId, current.volumeSerial);
+    session.close();
+  }));
+
+test('U 盘绑定：保险库把 driveId 纳入 KEK，改令牌文件里的盘号也解不开', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const drive = require('../src/token/drive');
+    const current = drive.identify(path.join(tokenDir, 'probe'));
+    if (!current) return; // 无卷序列号时跳过
+    const token = await soft.createToken(tokenDir, '123456', { drive: current });
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: token.path, pin: '123456', library: SAMPLE });
+    vault.lock();
+
+    // 篡改令牌文件里的盘号，伪造"这是当前盘"
+    const raw = JSON.parse(fs.readFileSync(token.path, 'utf-8'));
+    raw.drive = { volumeSerial: 'FFFF-FFFF' };
+    fs.writeFileSync(token.path, JSON.stringify(raw));
+    // 伪造的盘号与当前盘不符：openToken 直接拒绝
+    await assert.rejects(() => vault.unlock({ pin: '123456', tokenPath: token.path }), /U 盘不匹配|U 盘编码/);
+
+    // 恢复真实盘号后可以解锁（vault.json 里的 driveId 才是权威）
+    raw.drive = { volumeSerial: current.volumeSerial };
+    fs.writeFileSync(token.path, JSON.stringify(raw));
+    await vault.unlock({ pin: '123456' });
+    assert.deepEqual(vault.codec().decode(fs.readFileSync(vault.encFile)), SAMPLE);
+  }));
+
+test('U 盘绑定：旧保险库解锁后就地升级为绑定', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    // 创建"旧版"令牌：显式不绑定
+    const token = await soft.createToken(tokenDir, '123456', { drive: null });
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: token.path, pin: '123456', library: SAMPLE });
+    const metaBefore = JSON.parse(fs.readFileSync(path.join(dataDir, 'vault.json'), 'utf-8'));
+    assert.equal(metaBefore.token.driveId, null);
+
+    vault.lock();
+    await vault.unlock({ pin: '123456' });
+
+    const metaAfter = JSON.parse(fs.readFileSync(path.join(dataDir, 'vault.json'), 'utf-8'));
+    const drive = require('../src/token/drive');
+    const current = drive.identify(token.path);
+    if (current) {
+      assert.equal(metaAfter.token.driveId, current.volumeSerial, '解锁后应补上 driveId');
+      assert.equal(soft.readTokenInfo(token.path).boundDrive, current.volumeSerial, '令牌文件也应补上盘号');
+    }
+  }));
+
 // ---------- 保险库：启用 / 解锁 / 锁定 ----------
 
 test('保险库：启用后数据是密文，重启后凭令牌+PIN 解回原样', () =>

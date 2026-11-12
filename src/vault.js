@@ -45,10 +45,15 @@ function unseal(key, box) {
   return Buffer.concat([decipher.update(Buffer.from(box.data, 'hex')), decipher.final()]);
 }
 
-function deriveKek(hmacResponse, serial) {
-  // HKDF：把令牌应答扩展成独立的加密密钥，info 绑定序列号（换令牌=换密钥）
+function deriveKek(hmacResponse, serial, driveId) {
+  // HKDF：把令牌应答扩展成独立的加密密钥。
+  // info 绑定令牌序列号 + U 盘卷序列号：把令牌文件拷到别的盘后，
+  // 即便改了文件里的 drive 字段，也推不出原来的 KEK，解不开已包装的 DEK。
+  const info = driveId
+    ? `docvault-vault-v1|${serial}|${driveId}`
+    : `docvault-vault-v1|${serial}`;
   return Buffer.from(
-    crypto.hkdfSync('sha256', hmacResponse, Buffer.from('docvault-vault-v1'), Buffer.from(serial), 32)
+    crypto.hkdfSync('sha256', hmacResponse, Buffer.from('docvault-vault-v1'), Buffer.from(info), 32)
   );
 }
 
@@ -197,7 +202,7 @@ class Vault {
     const salt = crypto.randomBytes(32);
     let recoveryCode = null;
     try {
-      const kek = deriveKek(session.hmac(salt), session.serial);
+      const kek = deriveKek(session.hmac(salt), session.serial, session.driveId);
       recoveryCode = generateRecoveryCode();
       const recSalt = crypto.randomBytes(16).toString('hex');
       const recKey = await scrypt(normalizeRecoveryCode(recoveryCode), Buffer.from(recSalt, 'hex'), 32, {
@@ -206,7 +211,13 @@ class Vault {
       });
       const meta = {
         v: 1,
-        token: { type: session.type, serial: session.serial, pinFree: session.pinFree === true, path: tokenPath },
+        token: {
+          type: session.type,
+          serial: session.serial,
+          pinFree: session.pinFree === true,
+          driveId: session.driveId || null,
+          path: tokenPath,
+        },
         salt: salt.toString('hex'),
         wrappedDek: seal(kek, dek),
         recovery: { kdf: { ...RECOVERY_KDF, salt: recSalt }, wrappedDek: seal(recKey, dek) },
@@ -228,7 +239,7 @@ class Vault {
       this.state = 'unlocked';
       this.boundSerial = session.serial;
       this.boundTokenPath = tokenPath;
-      return { recoveryCode, serial: session.serial };
+      return { recoveryCode, serial: session.serial, drive: session.driveId || null };
     } catch (err) {
       dek.fill(0);
       this.dek = null;
@@ -260,7 +271,9 @@ class Vault {
     const session = await soft.openToken(info.path, pin);
     const dek = crypto.randomBytes(32);
     try {
-      const kek = deriveKek(session.hmac(Buffer.from(meta.salt, 'hex')), session.serial);
+      // 旧版保险库没有 driveId，用旧 info 派生；解锁成功后就地升级为 U 盘绑定
+      const metaDrive = meta.token.driveId || null;
+      const kek = deriveKek(session.hmac(Buffer.from(meta.salt, 'hex')), session.serial, metaDrive);
       const unwrapped = unseal(kek, meta.wrappedDek);
       kek.fill(0);
       unwrapped.copy(dek);
@@ -270,6 +283,7 @@ class Vault {
       this.state = 'unlocked';
       this.boundSerial = session.serial;
       this.boundTokenPath = info.path;
+      this.#upgradeDriveBinding(meta, session, dek);
       return { serial: session.serial };
     } catch (err) {
       dek.fill(0);
@@ -280,6 +294,29 @@ class Vault {
       throw err;
     } finally {
       session.close();
+    }
+  }
+
+  // 旧版保险库迁移：补上 U 盘绑定并把 DEK 重新包装。
+  // 只影响 wrappedDek 的包装方式，DEK 与数据文件不动；失败不影响本次解锁。
+  #upgradeDriveBinding(meta, session, dek) {
+    if (meta.token.driveId) return;
+    try {
+      let driveId = session.driveId;
+      if (!driveId) driveId = soft.bindDrive(this.boundTokenPath);
+      if (!driveId) return; // 盘无序列号（如某些虚拟盘）：保持不绑定
+      const kek = deriveKek(
+        session.hmac(Buffer.from(meta.salt, 'hex')),
+        session.serial,
+        driveId
+      );
+      meta.token.driveId = driveId;
+      meta.wrappedDek = seal(kek, dek);
+      kek.fill(0);
+      writeJsonAtomic(this.vaultFile, meta);
+      console.log(`[vault] 已把令牌绑定到当前 U 盘（${driveId}）`);
+    } catch (err) {
+      console.error(`[vault] U 盘绑定迁移失败：${err.message}`);
     }
   }
 
@@ -326,7 +363,7 @@ class Vault {
     const salt = crypto.randomBytes(32);
     let recoveryCode = null;
     try {
-      const kek = deriveKek(session.hmac(salt), session.serial);
+      const kek = deriveKek(session.hmac(salt), session.serial, session.driveId);
       recoveryCode = generateRecoveryCode();
       const recSalt = crypto.randomBytes(16).toString('hex');
       const recKey = await scrypt(normalizeRecoveryCode(recoveryCode), Buffer.from(recSalt, 'hex'), 32, {
@@ -336,7 +373,13 @@ class Vault {
       const old = this.#meta();
       const meta = {
         v: 1,
-        token: { type: session.type, serial: session.serial, pinFree: session.pinFree === true, path: tokenPath },
+        token: {
+          type: session.type,
+          serial: session.serial,
+          pinFree: session.pinFree === true,
+          driveId: session.driveId || null,
+          path: tokenPath,
+        },
         salt: salt.toString('hex'),
         wrappedDek: seal(kek, dek),
         recovery: { kdf: { ...RECOVERY_KDF, salt: recSalt }, wrappedDek: seal(recKey, dek) },
@@ -349,7 +392,7 @@ class Vault {
       this.state = 'unlocked';
       this.boundSerial = session.serial;
       this.boundTokenPath = tokenPath;
-      return { recoveryCode, serial: session.serial };
+      return { recoveryCode, serial: session.serial, drive: session.driveId || null };
     } finally {
       session.close();
     }

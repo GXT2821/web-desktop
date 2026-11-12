@@ -1259,7 +1259,7 @@
         });
         try {
           const result = await enroll(false);
-          stepRecovery(result.recoveryCode, free);
+          stepRecovery(result.recoveryCode, free, result.drive);
         } catch (err) {
           submit.disabled = false;
           if (selected.createDir && /已经有一枚令牌/.test(err.message)) {
@@ -1272,7 +1272,7 @@
                 submit.disabled = true;
                 const result = await enroll(true);
                 // 等 confirmDialog 关闭当前弹窗后再展示恢复码
-                setTimeout(() => stepRecovery(result.recoveryCode, free), 0);
+                setTimeout(() => stepRecovery(result.recoveryCode, free, result.drive), 0);
               },
             });
           } else {
@@ -1284,7 +1284,7 @@
     }
 
     // ---- 第三步：恢复码（必须确认保存才能完成） ----
-    function stepRecovery(code, pinFree = false) {
+    function stepRecovery(code, pinFree = false, drive = null) {
       const savedCheck = el('input', { type: 'checkbox' });
       const doneBtn = el('button', { class: 'btn-primary', type: 'button', text: '完成', disabled: true });
       savedCheck.addEventListener('change', () => {
@@ -1315,6 +1315,7 @@
           ? `这枚令牌没有 PIN：插入即解锁。令牌丢失时可凭恢复码找回数据。请抄写或复制恢复码并保存在别处。`
           : '令牌丢失时，恢复码是找回数据的唯一途径。请抄写或复制到安全的地方（不要只存在这台电脑上）。' }),
         el('div', { class: 'recovery-code', text: code }),
+        drive ? el('p', { class: 'hint', text: `已绑定当前 U 盘编码：${drive}。把 DocVault.key 拷到别的 U 盘将无法解锁。` }) : null,
         el('div', { class: 'modal-actions' }, [copyBtn]),
         el('label', { class: 'check-row' }, [savedCheck, el('span', { text: '我已安全保存恢复码' })]),
         el('div', { class: 'modal-actions' }, [doneBtn]),
