@@ -28,10 +28,13 @@ const {
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 class Store extends LibraryStore {
-  constructor(file) {
+  // options.codec：可选的编解码器 { encode(data)→Buffer, decode(Buffer)→object }。
+  // 启用 U盾保护时由 Vault 提供（AES-256-GCM）；不传则保持明文 JSON，行为与旧版完全一致。
+  constructor(file, options = {}) {
     super(emptyLibrary());
     this.file = file;
     this.backupFile = `${file}.bak`;
+    this.codec = options.codec || null;
   }
 
   // 读取磁盘数据；返回 { recovered: 'none'|'backup'|'reset' }
@@ -74,6 +77,11 @@ class Store extends LibraryStore {
       if (size > MAX_FILE_BYTES) {
         console.error(`[store] 文件过大，按损坏处理 ${file} (${size} 字节)`);
         return { ok: false };
+      }
+      if (this.codec) {
+        // 加密库：解密失败（密钥不对/文件被改）按"读不了"处理，走备份/留档流程
+        const plain = this.codec.decode(fs.readFileSync(file));
+        return { ok: true, data: sanitizeLibrary(plain) };
       }
       const raw = fs.readFileSync(file, 'utf-8');
       if (!raw.trim()) return { ok: false };
@@ -130,19 +138,19 @@ class Store extends LibraryStore {
     const tmp = `${this.file}.tmp`;
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(tmp, `${JSON.stringify(this.data, null, 2)}\n`, {
-        encoding: 'utf-8',
+      const payload = this.codec
+        ? this.codec.encode(this.data)
+        : `${JSON.stringify(this.data, null, 2)}\n`;
+      fs.writeFileSync(tmp, payload, {
+        encoding: this.codec ? undefined : 'utf-8',
         mode: 0o600,
       });
       try {
         if (fs.existsSync(this.file)) fs.copyFileSync(this.file, this.backupFile);
         fs.renameSync(tmp, this.file);
       } catch (err) {
-        // rename 在个别文件系统上会失败，退化为直接写
-        fs.writeFileSync(this.file, fs.readFileSync(tmp, 'utf-8'), {
-          encoding: 'utf-8',
-          mode: 0o600,
-        });
+        // rename 在个别文件系统上会失败，退化为直接写（按 Buffer 搬运，密文/文本都安全）
+        fs.writeFileSync(this.file, fs.readFileSync(tmp), { mode: 0o600 });
         fs.rmSync(tmp, { force: true });
       }
       // writeFileSync 的 mode 只在新建文件时生效，这里兜底纠正已存在文件的权限（失败不影响功能）

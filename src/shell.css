@@ -716,6 +716,106 @@ svg {
   color: var(--accent);
 }
 
+/* ===== U盾保护 ===== */
+.vault-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.vault-row .vault-on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.token-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--panel);
+  color: var(--text-1);
+  text-align: left;
+}
+
+.token-item:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.token-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.token-item .serial {
+  font-family: Consolas, monospace;
+  color: var(--text-3);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.token-item .badge {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--danger, #d64545);
+}
+
+.recovery-code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 15px;
+  letter-spacing: 1px;
+  line-height: 1.9;
+  background: var(--panel);
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  user-select: text;
+  word-break: break-all;
+}
+
+.reset-list {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-2);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 10px 0 12px;
+  cursor: pointer;
+}
+
 /* ===== 标签页栏 ===== */
 .tabbar {
   display: flex;

@@ -1,0 +1,422 @@
+/* 锁定页：独立样式，不依赖 shell.css（锁定态不加载文档库界面） */
+
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --text: #1c2130;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #5b54e8;
+  --accent-2: #8b93ff;
+  --danger: #d64545;
+  --ok: #2f9e6e;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.lock-wrap {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(1200px 500px at 20% -10%, rgba(139, 147, 255, 0.16), transparent 60%),
+    radial-gradient(900px 420px at 110% 110%, rgba(91, 84, 232, 0.10), transparent 55%),
+    var(--bg);
+}
+
+.lock-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px 28px 20px;
+  box-shadow: 0 18px 50px rgba(28, 33, 48, 0.10);
+}
+
+.lock-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+.brand-mark {
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--accent-2), var(--accent) 60%, #3b32b8);
+  color: #fff; font-weight: 700; font-size: 14px; letter-spacing: 0.5px;
+}
+.brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+.brand-text strong { font-size: 15px; }
+.brand-text em { font-style: normal; font-size: 12px; color: var(--muted); }
+
+h1 { font-size: 19px; margin: 0 0 6px; }
+h2 { font-size: 15px; margin: 18px 0 8px; }
+.lock-sub { margin: 0 0 16px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+.token-state {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  background: #fafafc;
+  color: var(--muted);
+  min-height: 40px;
+}
+.token-state.ok { color: var(--ok); border-color: rgba(47, 158, 110, 0.35); background: rgba(47, 158, 110, 0.06); }
+.token-state.warn { color: #b7791f; border-color: rgba(183, 121, 31, 0.35); background: rgba(183, 121, 31, 0.06); }
+.token-state .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.token-state.ok .dot { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+form { display: flex; flex-direction: column; gap: 10px; }
+input[type="password"], input[type="text"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 14px;
+  outline: none;
+  background: #fff;
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
+}
+input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91, 84, 232, 0.14); }
+input:disabled { background: #f3f4f6; color: var(--muted); }
+
+.btn-primary {
+  border: none;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  cursor: pointer;
+}
+.btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+.btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+.btn-ghost {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  margin: 8px 0;
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.link-btn {
+  border: none; background: none; padding: 0;
+  color: var(--accent); font-size: 13px; cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; }
+
+.error { color: var(--danger); font-size: 13px; margin: 10px 0 0; line-height: 1.5; }
+.lock-links { margin-top: 16px; text-align: center; }
+.lock-foot { margin: 18px 0 0; text-align: center; font-size: 11px; color: var(--muted); }
+
+.token-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.token-item {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #fff;
+  text-align: left;
+}
+.token-item:hover { border-color: var(--accent); }
+.token-item.selected { border-color: var(--accent); background: rgba(91, 84, 232, 0.06); }
+.token-item .serial { font-family: Consolas, monospace; color: var(--muted); font-size: 12px; }
+.token-item .badge { margin-left: auto; font-size: 11px; color: var(--danger); }
+
+.recovery-code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 15px;
+  letter-spacing: 1px;
+  line-height: 1.9;
+  background: #fafafc;
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  -webkit-user-select: text;
+  user-select: text;
+  word-break: break-all;
+}
+
+/* ===== 免 PIN：插入 → 读取密钥 → 确定进入 ===== */
+
+.auto-flow {
+  margin-top: 2px;
+}
+
+.usb-scene {
+  position: relative;
+  height: 132px;
+  margin: 6px 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.usb-body {
+  position: relative;
+  width: 138px;
+  height: 60px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(150deg, #eef1f7, #ccd2e0 58%, #a9b1c6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -2px 4px rgba(28, 33, 48, 0.12),
+    0 12px 26px rgba(28, 33, 48, 0.16);
+  transform: translateX(-96px) scale(0.92);
+  opacity: 0;
+}
+
+.usb-scene.inserted .usb-body {
+  animation: usb-in 0.62s cubic-bezier(0.22, 0.9, 0.26, 1) forwards;
+}
+
+@keyframes usb-in {
+  to { transform: translateX(0) scale(1); opacity: 1; }
+}
+
+.usb-pin {
+  position: absolute;
+  right: -17px;
+  top: 50%;
+  width: 19px;
+  height: 28px;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #dde2ec, #b2b9cb);
+  box-shadow: inset 0 0 0 1px rgba(28, 33, 48, 0.08);
+}
+
+.usb-pin::after {
+  content: "";
+  position: absolute;
+  inset: 6px 4px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg, #98a1b5 0 2px, transparent 2px 4px);
+}
+
+.usb-logo {
+  font-family: "Segoe UI", "PingFang SC", system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: #6b7280;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.scan-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 86px;
+  height: 86px;
+  margin: -43px 0 0 -43px;
+  border: 2px solid rgba(91, 84, 232, 0.45);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.usb-scene.scanning .scan-ring {
+  animation: scan 1.7s ease-out infinite;
+}
+
+.usb-scene.verified .scan-ring {
+  border-color: rgba(47, 158, 110, 0.55);
+  animation: scan-once 0.7s ease-out 1;
+}
+
+@keyframes scan {
+  0% { transform: scale(0.55); opacity: 0.9; }
+  100% { transform: scale(1.65); opacity: 0; }
+}
+
+@keyframes scan-once {
+  0% { transform: scale(0.7); opacity: 0.9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.key-badge {
+  position: absolute;
+  right: calc(50% - 96px);
+  top: 6px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  box-shadow: 0 8px 18px rgba(91, 84, 232, 0.35);
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.usb-scene.inserted .key-badge {
+  animation: key-in 0.5s 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) forwards, key-pulse 2.1s 0.9s ease-in-out infinite;
+}
+
+.usb-scene.verified .key-badge {
+  background: linear-gradient(135deg, #5fd0a0, var(--ok));
+  box-shadow: 0 8px 18px rgba(47, 158, 110, 0.4);
+  animation: key-in 0.3s ease forwards;
+}
+
+@keyframes key-in {
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes key-pulse {
+  50% { box-shadow: 0 8px 26px rgba(91, 84, 232, 0.6); transform: scale(1.06); }
+}
+
+.key-icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.read-steps {
+  list-style: none;
+  margin: 4px 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.read-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  transition: color 0.2s ease;
+}
+
+.read-steps .tick {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.read-steps li[data-state="active"] {
+  color: var(--text);
+}
+
+.read-steps li[data-state="active"] .tick {
+  border-color: var(--accent);
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+.read-steps li[data-state="done"] {
+  color: var(--text);
+}
+
+.read-steps li[data-state="done"] .tick {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.read-steps li[data-state="done"] .tick::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.read-progress {
+  height: 4px;
+  margin: 0 0 14px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.read-progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  transition: width 0.9s linear;
+}
+
+.read-progress.run span {
+  width: 100%;
+}
+
+.enter-btn {
+  width: 100%;
+  margin-top: 2px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: enter-in 0.4s ease forwards, enter-pulse 2.2s 0.5s ease-in-out infinite;
+}
+
+@keyframes enter-in {
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes enter-pulse {
+  50% { box-shadow: 0 0 0 9px rgba(91, 84, 232, 0.12); }
+}
+
+.auto-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  min-height: 16px;
+  line-height: 1.5;
+}
+
+.auto-hint.warn { color: #b7791f; }
+.auto-hint.error { color: var(--danger); }

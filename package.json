@@ -10,6 +10,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
+    "test:e2e": "node scripts/e2e-vault.js",
+    "test:e2e:auto": "node scripts/e2e-autounlock.js",
     "icons": "electron scripts/build-icons.js --force-device-scale-factor=1",
     "pack": "electron-builder --dir",
     "build": "node scripts/build.js",
@@ -35,6 +37,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "preload-lock.js",
       "src/**/*"
     ],
     "afterPack": "scripts/after-pack.js",

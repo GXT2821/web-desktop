@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none';"
+  />
+  <title>文档库 · 已锁定</title>
+  <link rel="stylesheet" href="lock.css" />
+</head>
+<body>
+  <div class="lock-wrap">
+    <div class="lock-card">
+      <div class="lock-brand">
+        <span class="brand-mark">GT</span>
+        <div class="brand-text">
+          <strong>文档库</strong>
+          <em>U盾保护已启用</em>
+        </div>
+      </div>
+
+      <!-- ===== 主解锁视图 ===== -->
+      <section id="unlockView">
+        <h1 id="unlockTitle">文档库已锁定</h1>
+        <p class="lock-sub" id="unlockSub">插入绑定的令牌 U 盘，输入 PIN 解锁。</p>
+
+        <!-- 免 PIN：插盾 → 读取密钥动画 → 点「确定」进入 -->
+        <div class="auto-flow" id="autoFlow" hidden>
+          <div class="usb-scene" id="usbScene">
+            <div class="usb-body">
+              <span class="usb-logo">GT</span>
+              <span class="usb-pin"></span>
+            </div>
+            <div class="scan-ring"></div>
+            <div class="key-badge">
+              <svg class="key-icon" viewBox="0 0 48 48" aria-hidden="true">
+                <circle cx="15" cy="24" r="8" />
+                <path d="M23 24h20M35 24v7M41 24v5" />
+              </svg>
+            </div>
+          </div>
+
+          <ul class="read-steps" id="readSteps">
+            <li data-step="detect"><span class="tick"></span><span>检测到令牌 U 盘</span></li>
+            <li data-step="read"><span class="tick"></span><span>读取加密密钥</span></li>
+            <li data-step="verify"><span class="tick"></span><span>校验数据完整性</span></li>
+          </ul>
+
+          <div class="read-progress" id="readProgress"><span></span></div>
+
+          <button id="enterBtn" class="btn-primary enter-btn" type="button" hidden>确定进入文档库</button>
+          <p class="auto-hint" id="autoHint"></p>
+        </div>
+
+        <div id="pinFlow">
+          <div class="token-state" id="tokenState">正在检测令牌…</div>
+
+          <form id="pinForm" autocomplete="off">
+            <input
+              id="pinInput"
+              type="password"
+              inputmode="numeric"
+              maxlength="16"
+              placeholder="令牌 PIN"
+              autocomplete="off"
+              disabled
+            />
+            <button class="btn-primary" id="unlockBtn" type="submit" disabled>解锁</button>
+          </form>
+          <p class="error" id="unlockError" hidden></p>
+        </div>
+
+        <div class="lock-links">
+          <button class="link-btn" id="toRecover" type="button">令牌丢了？用恢复码解锁</button>
+        </div>
+      </section>
+
+      <!-- ===== 恢复码视图 ===== -->
+      <section id="recoverView" hidden>
+        <h1>恢复码解锁</h1>
+        <p class="lock-sub">输入启用保护时保存的 32 位恢复码。验证后需要绑定一枚新令牌。</p>
+
+        <form id="recoverForm" autocomplete="off">
+          <input
+            id="codeInput"
+            type="text"
+            maxlength="64"
+            placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <button class="btn-primary" type="submit">验证恢复码</button>
+        </form>
+        <p class="error" id="recoverError" hidden></p>
+
+        <!-- 第二步：绑定新令牌 -->
+        <div id="bindStep" hidden>
+          <h2>绑定新令牌</h2>
+          <div class="token-list" id="bindTokenList"></div>
+          <button class="btn-ghost" id="bindCreateBtn" type="button">在新位置创建令牌…</button>
+          <form id="bindForm" autocomplete="off" hidden>
+            <input id="bindPin" type="password" maxlength="16" placeholder="新令牌 PIN（4–16 位）" autocomplete="off" />
+            <input id="bindPin2" type="password" maxlength="16" placeholder="再输入一次" autocomplete="off" />
+            <label class="check-row">
+              <input type="checkbox" id="bindFree" />
+              <span>免 PIN：插上这枚令牌即自动解锁</span>
+            </label>
+            <button class="btn-primary" type="submit">绑定并解锁</button>
+          </form>
+          <p class="error" id="bindError" hidden></p>
+        </div>
+
+        <!-- 第三步：展示新恢复码 -->
+        <div id="newCodeStep" hidden>
+          <h2>保存新的恢复码</h2>
+          <p class="lock-sub">旧恢复码已作废。请抄写并妥善保存下面这组新恢复码。</p>
+          <div class="recovery-code" id="newCodeText"></div>
+          <label class="check-row">
+            <input type="checkbox" id="newCodeSaved" />
+            <span>我已安全保存新恢复码</span>
+          </label>
+          <button class="btn-primary" id="finishBtn" type="button" disabled>进入文档库</button>
+        </div>
+
+        <div class="lock-links">
+          <button class="link-btn" id="backToUnlock" type="button">返回 PIN 解锁</button>
+        </div>
+      </section>
+
+      <p class="lock-foot" id="lockFoot"></p>
+    </div>
+  </div>
+
+  <script src="lock.js"></script>
+</body>
+</html>

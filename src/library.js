@@ -395,6 +395,27 @@
         ` · v${info.appVersion || '1.0.0'}`,
       ])
     );
+
+    // U盾保护状态行
+    const vaultInfo = info.vault || { enabled: false };
+    dom.sideFoot.append(
+      el('div', { class: 'vault-row' }, vaultInfo.enabled
+        ? [
+            el('span', { class: 'vault-on', text: '🔒 U盾保护中' }),
+            el('button', { type: 'button', text: '锁定', title: '立即锁定文档库', onclick: lockVault }),
+            el('button', { type: 'button', text: '停用', title: '停用 U盾保护（需要令牌 PIN）', onclick: vaultDisableDialog }),
+            el('button', { type: 'button', text: '重置…', title: '清空文档库并恢复出厂状态', onclick: resetDialog }),
+          ]
+        : [
+            el('button', {
+              type: 'button',
+              text: '启用 U盾保护',
+              title: '用令牌 U 盘加密文档库：没有令牌和 PIN，数据文件无法读取',
+              onclick: vaultEnrollWizard,
+            }),
+            el('button', { type: 'button', text: '重置…', title: '清空文档库并恢复出厂状态', onclick: resetDialog }),
+          ])
+    );
   }
 
   // ==================== 渲染：列表 ====================
@@ -1089,6 +1110,329 @@
       modalBackdrop: document.getElementById('modalBackdrop'),
       toastWrap: document.getElementById('toastWrap'),
     };
+  }
+
+  // ==================== U盾保护 ====================
+
+  function lockVault() {
+    // 主进程会销毁本窗口并切换到锁定页；失败（比如已经锁定）才需要提示
+    window.api.vaultLock().catch((err) => toast(err.message, true));
+  }
+
+  // 启用向导：选令牌 → PIN → 保存恢复码
+  function vaultEnrollWizard() {
+    let selected = null; // { path, serial } 或 { createDir }
+    const errorText = el('p', { class: 'error', hidden: true });
+    const showError = (message) => {
+      errorText.textContent = message;
+      errorText.hidden = !message;
+    };
+
+    // ---- 第一步：选择 / 创建令牌 ----
+    async function stepChoose() {
+      selected = null;
+      const listBox = el('div', { class: 'token-list' });
+      const refreshBtn = el('button', { class: 'btn-ghost', type: 'button', text: '刷新检测' });
+      const createBtn = el('button', { class: 'btn-ghost', type: 'button', text: '在新位置创建令牌…' });
+      openModal(el('div', {}, [
+        el('h2', { text: '启用 U盾保护' }),
+        el('p', { class: 'modal-desc', text: '启用后文档库将被加密：没有绑定的令牌和 PIN，数据文件无法读取。请插入令牌 U 盘，或先创建一枚软件令牌。' }),
+        listBox,
+        el('div', { class: 'modal-actions' }, [refreshBtn, createBtn]),
+        errorText,
+      ]));
+
+      const renderTokens = async () => {
+        clear(listBox);
+        listBox.append(el('p', { class: 'hint', text: '正在检测令牌…' }));
+        try {
+          const tokens = await window.api.vaultDetect();
+          clear(listBox);
+          if (!tokens.length) {
+            listBox.append(el('p', { class: 'hint', text: '没有检测到令牌（DocVault.key）。插入 U 盘后点「刷新检测」，或新建一枚。' }));
+            return;
+          }
+          for (const token of tokens) {
+            const item = el('button', {
+              class: 'token-item',
+              type: 'button',
+              onclick: () => {
+                selected = { path: token.path, serial: token.serial, pinFree: token.pinFree };
+                stepPin();
+              },
+            }, [
+              el('span', { text: `令牌 · ${token.serial.slice(0, 8)}…` }),
+              el('span', { class: 'serial', text: token.path }),
+              token.pinFree ? el('span', { class: 'badge', text: '免 PIN' }) : null,
+              token.locked ? el('span', { class: 'badge', text: '已锁定' }) : null,
+            ]);
+            if (token.locked) item.disabled = true;
+            listBox.append(item);
+          }
+        } catch (err) {
+          clear(listBox);
+          listBox.append(el('p', { class: 'error', text: err.message }));
+        }
+      };
+      refreshBtn.addEventListener('click', renderTokens);
+      createBtn.addEventListener('click', async () => {
+        showError('');
+        try {
+          const picked = await window.api.vaultPickDir();
+          if (picked.canceled || !picked.dir) return;
+          selected = { createDir: picked.dir };
+          stepPin();
+        } catch (err) {
+          showError(err.message);
+        }
+      });
+      await renderTokens();
+    }
+
+    // ---- 第二步：PIN（新令牌=设置；已有令牌=校验；免 PIN 令牌跳过） ----
+    function stepPin() {
+      const isNew = Boolean(selected.createDir);
+      const alreadyFree = selected.pinFree === true;
+      const pinInput = el('input', { type: 'password', maxlength: '16', placeholder: '4–16 位', autocomplete: 'off', 'data-autofocus': true });
+      const pinInput2 = el('input', { type: 'password', maxlength: '16', placeholder: '再输入一次', autocomplete: 'off' });
+      const pinFields = el('div', {}, [
+        el('div', { class: 'field' }, [el('label', { text: 'PIN' }), pinInput]),
+        isNew ? el('div', { class: 'field' }, [el('label', { text: '确认 PIN' }), pinInput2]) : null,
+      ]);
+      const freeCheck = el('input', { type: 'checkbox' });
+      const freeHint = el('p', {
+        class: 'hint',
+        text: '免 PIN 模式：插入这枚 U 盘即自动解锁（U 盘就是钥匙）。谁拿到它谁就能打开文档库，请随身保管、不要外借。',
+      });
+      const freeRow = isNew
+        ? el('label', { class: 'check-row' }, [freeCheck, el('span', { text: '免 PIN：插入即自动解锁' })])
+        : null;
+
+      pinFields.hidden = alreadyFree;
+      freeHint.hidden = !(isNew || alreadyFree);
+      if (alreadyFree) {
+        pinInput.disabled = true;
+        pinInput2.disabled = true;
+      }
+      if (isNew) {
+        freeCheck.addEventListener('change', () => {
+          pinFields.hidden = freeCheck.checked;
+          pinInput.disabled = freeCheck.checked;
+          pinInput2.disabled = freeCheck.checked;
+          heading.textContent = freeCheck.checked ? '创建免 PIN 令牌' : '创建令牌并设置 PIN';
+        });
+      }
+
+      const heading = el('h2', { text: isNew ? '创建令牌并设置 PIN' : (alreadyFree ? '使用免 PIN 令牌' : '输入令牌 PIN') });
+      const form = el('form', { class: 'modal-form' }, [
+        heading,
+        el('p', {
+          class: 'modal-desc',
+          text: isNew ? `令牌将创建在：${selected.createDir}` : `令牌 ${selected.serial.slice(0, 8)}… · ${selected.path}`,
+        }),
+        pinFields,
+        freeRow,
+        freeHint,
+        errorText,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { class: 'btn-ghost', type: 'button', text: '返回', onclick: () => stepChoose() }),
+          el('button', { class: 'btn-primary', type: 'submit', text: '加密并启用' }),
+        ]),
+      ]);
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const free = alreadyFree || (isNew && freeCheck.checked);
+        const pin = pinInput.value;
+        if (!free) {
+          if (pin.length < 4 || pin.length > 16) return showError('PIN 需要 4–16 位');
+          if (isNew && pin !== pinInput2.value) return showError('两次输入的 PIN 不一致');
+        }
+        const submit = form.querySelector('button[type="submit"]');
+        submit.disabled = true;
+        showError('');
+        const enroll = (force) => window.api.vaultEnroll({
+          tokenPath: selected.path,
+          createDir: selected.createDir,
+          pin,
+          pinFree: free,
+          force,
+        });
+        try {
+          const result = await enroll(false);
+          stepRecovery(result.recoveryCode, free);
+        } catch (err) {
+          submit.disabled = false;
+          if (selected.createDir && /已经有一枚令牌/.test(err.message)) {
+            // 目标目录已有 DocVault.key：确认后覆盖（旧令牌立即失效）
+            confirmDialog({
+              title: '覆盖已有令牌？',
+              desc: `${selected.createDir} 里已经有一枚 DocVault.key。继续会覆盖它，旧令牌立即失效（如果它绑着别的文档库，那边将无法再解锁）。`,
+              confirmText: '覆盖并继续',
+              onConfirm: async () => {
+                submit.disabled = true;
+                const result = await enroll(true);
+                // 等 confirmDialog 关闭当前弹窗后再展示恢复码
+                setTimeout(() => stepRecovery(result.recoveryCode, free), 0);
+              },
+            });
+          } else {
+            showError(err.message);
+          }
+        }
+      });
+      openModal(form);
+    }
+
+    // ---- 第三步：恢复码（必须确认保存才能完成） ----
+    function stepRecovery(code, pinFree = false) {
+      const savedCheck = el('input', { type: 'checkbox' });
+      const doneBtn = el('button', { class: 'btn-primary', type: 'button', text: '完成', disabled: true });
+      savedCheck.addEventListener('change', () => {
+        doneBtn.disabled = !savedCheck.checked;
+      });
+      doneBtn.addEventListener('click', async () => {
+        closeModal();
+        try {
+          absorb(await window.api.getLibrary());
+          state.info = await window.api.getInfo();
+          renderFoot();
+          toast(pinFree ? 'U盾保护已启用（免 PIN：插入即解锁）' : 'U盾保护已启用，数据已加密');
+        } catch {
+          /* 界面刷新失败不影响已启用的保护 */
+        }
+      });
+      const copyBtn = el('button', {
+        class: 'btn-ghost',
+        type: 'button',
+        text: '复制恢复码',
+        onclick: () => window.api.copyText(code)
+          .then(() => toast('恢复码已复制，请保存到安全的地方'))
+          .catch((err) => toast(err.message, true)),
+      });
+      openModal(el('div', {}, [
+        el('h2', { text: '保存恢复码' }),
+        el('p', { class: 'modal-desc', text: pinFree
+          ? `这枚令牌没有 PIN：插入即解锁。令牌丢失时可凭恢复码找回数据。请抄写或复制恢复码并保存在别处。`
+          : '令牌丢失时，恢复码是找回数据的唯一途径。请抄写或复制到安全的地方（不要只存在这台电脑上）。' }),
+        el('div', { class: 'recovery-code', text: code }),
+        el('div', { class: 'modal-actions' }, [copyBtn]),
+        el('label', { class: 'check-row' }, [savedCheck, el('span', { text: '我已安全保存恢复码' })]),
+        el('div', { class: 'modal-actions' }, [doneBtn]),
+      ]));
+    }
+
+    stepChoose();
+  }
+
+  // 停用保护：确认后还原明文（免 PIN 令牌不需要 PIN）
+  function vaultDisableDialog() {
+    const pinFree = Boolean(state.info && state.info.vault && state.info.vault.pinFree);
+    const pinInput = el('input', { type: 'password', maxlength: '16', placeholder: '令牌 PIN', autocomplete: 'off', 'data-autofocus': true });
+    const errorText = el('p', { class: 'error', hidden: true });
+    const form = el('form', { class: 'modal-form' }, [
+      el('h2', { text: '停用 U盾保护' }),
+      el('p', {
+        class: 'modal-desc',
+        text: pinFree
+          ? '停用后数据恢复为明文存储（library.json），能访问这台电脑的人都可以读取。当前是免 PIN 令牌，确认后会直接停用。'
+          : '停用后数据恢复为明文存储（library.json），能访问这台电脑的人都可以读取。需要令牌 PIN 确认。',
+      }),
+      pinFree ? null : el('div', { class: 'field' }, [el('label', { text: 'PIN' }), pinInput]),
+      errorText,
+      el('div', { class: 'modal-actions' }, [
+        el('button', { class: 'btn-ghost', type: 'button', text: '取消', onclick: closeModal }),
+        el('button', { class: 'btn-primary', type: 'submit', text: '停用保护' }),
+      ]),
+    ]);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      errorText.hidden = true;
+      try {
+        await window.api.vaultDisable(pinFree ? '' : pinInput.value);
+        closeModal();
+        absorb(await window.api.getLibrary());
+        state.info = await window.api.getInfo();
+        renderFoot();
+        toast('已停用 U盾保护，数据恢复为明文存储');
+      } catch (err) {
+        errorText.textContent = err.message;
+        errorText.hidden = false;
+        submit.disabled = false;
+      }
+    });
+    openModal(form);
+  }
+
+  // 重置：清空文档库 + 保护配置（可选删令牌），然后重启回出厂状态
+  async function resetDialog() {
+    let targets;
+    try {
+      targets = await window.api.vaultResetTargets();
+    } catch (err) {
+      toast(err.message, true);
+      return;
+    }
+    const tokenPath = targets.tokenPath || '';
+    const deleteTokenCheck = el('input', { type: 'checkbox' });
+    const confirmInput = el('input', {
+      type: 'text',
+      placeholder: '输入「重置」确认',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      'data-autofocus': true,
+    });
+    const errorText = el('p', { class: 'error', hidden: true });
+    const submit = el('button', { class: 'btn-ghost danger', type: 'submit', text: '清空并重启', disabled: true });
+
+    confirmInput.addEventListener('input', () => {
+      submit.disabled = confirmInput.value.trim() !== '重置';
+    });
+
+    const fileList = targets.files.length
+      ? targets.files.map((name) => `· ${name}`).join('\n')
+      : '（没有需要删除的数据文件）';
+
+    const form = el('form', { class: 'modal-form' }, [
+      el('h2', { text: '重置文档库' }),
+      el('p', { class: 'modal-desc', text: '将删除本机所有文档数据、加密文件与保护配置，然后重启应用。此操作不可恢复，恢复码也会失效。' }),
+      el('pre', { class: 'reset-list', text: `${targets.dataDir}\n${fileList}` }),
+      tokenPath
+        ? el('label', { class: 'check-row' }, [
+            deleteTokenCheck,
+            el('span', { text: `同时删除 U 盘里的令牌文件（${tokenPath}）` }),
+          ])
+        : null,
+      el('div', { class: 'field' }, [el('label', { text: '确认' }), confirmInput]),
+      errorText,
+      el('div', { class: 'modal-actions' }, [
+        el('button', { class: 'btn-ghost', type: 'button', text: '取消', onclick: closeModal }),
+        submit,
+      ]),
+    ]);
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      errorText.hidden = true;
+      try {
+        await window.api.vaultReset({
+          confirm: confirmInput.value.trim(),
+          deleteToken: deleteTokenCheck.checked,
+        });
+        // 主进程会 relaunch，界面随即关闭
+        form.querySelectorAll('input, button').forEach((node) => {
+          node.disabled = true;
+        });
+        toast('正在清空并重启…');
+      } catch (err) {
+        errorText.textContent = err.message;
+        errorText.hidden = false;
+        submit.disabled = confirmInput.value.trim() !== '重置';
+      }
+    });
+    openModal(form);
   }
 
   // ==================== 对外接口 ====================

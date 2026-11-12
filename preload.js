@@ -39,6 +39,17 @@ contextBridge.exposeInMainWorld('api', {
   exportLibrary: () => call('library:export'),
   revealDataFile: () => call('store:reveal'),
 
+  // U盾保护（启用/停用/锁定；解锁在独立的锁定窗口里完成）
+  vaultStatus: () => call('vault:status'),
+  vaultDetect: () => call('vault:detect'),
+  vaultPickDir: () => call('vault:pick-dir'),
+  vaultCreateToken: (dir, pin) => call('vault:create-token', { dir, pin }),
+  vaultEnroll: (payload) => call('vault:enroll', payload),
+  vaultLock: () => call('vault:lock'),
+  vaultDisable: (pin) => call('vault:disable', { pin }),
+  vaultResetTargets: () => call('vault:reset-targets'),
+  vaultReset: (payload) => call('vault:reset', payload),
+
   // 主进程通知：网页里的 window.open 已被拦截，改为应用内新标签
   onOpenTab: (callback) => {
     ipcRenderer.on('open-tab', (_event, payload) => callback(payload && payload.url));
