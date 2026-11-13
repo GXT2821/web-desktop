@@ -1705,7 +1705,11 @@
 
     const form = el('form', { class: 'modal-form' }, [
       el('h2', { text: '重置文档库' }),
-      el('p', { class: 'modal-desc', text: '将删除本机所有文档数据、加密文件与保护配置，然后重启应用。此操作不可恢复，恢复码也会失效。' }),
+      el('p', {
+        class: 'modal-desc',
+        text: '将清空本机文档库、加密文件与保护配置，然后重启应用（恢复码会失效）。'
+          + '删除前会自动把现有文件复制一份到数据目录下的 reset-backup-<时间>/，出问题可以从那里找回。',
+      }),
       el('pre', { class: 'reset-list', text: `${targets.dataDir}\n${fileList}` }),
       tokenPath
         ? el('label', { class: 'check-row' }, [
