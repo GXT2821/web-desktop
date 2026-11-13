@@ -447,6 +447,36 @@
     );
   }
 
+  // 品牌行「⋯」：把锁定/令牌/重置这些常用动作再放一个窗口内入口
+  function setupMoreMenu() {
+    const btn = document.getElementById('moreBtn');
+    if (!btn) return;
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (openMenuEl && btn.getAttribute('aria-expanded') === 'true') {
+        closeMenuBar();
+        return;
+      }
+      const vaultInfo = (state.info && state.info.vault) || { enabled: false };
+      const actions = vaultInfo.enabled
+        ? [
+            { label: '锁定', onClick: lockVault },
+            { label: vaultInfo.tokenCount > 1 ? `令牌管理（${vaultInfo.tokenCount} 枚）…` : '令牌管理…', onClick: vaultTokensDialog },
+            { label: '停用 U盾保护…', onClick: vaultDisableDialog },
+            { separator: true },
+            { label: '打开数据文件位置', onClick: () => window.api.revealDataFile().catch((err) => toast(err.message, true)) },
+            { label: '重置…', onClick: resetDialog },
+          ]
+        : [
+            { label: '启用 U盾保护…', onClick: vaultEnrollWizard },
+            { separator: true },
+            { label: '打开数据文件位置', onClick: () => window.api.revealDataFile().catch((err) => toast(err.message, true)) },
+            { label: '重置…', onClick: resetDialog },
+          ];
+      openMenuBar(btn, actions);
+    });
+  }
+
   function renderFoot() {
     const { docs, folders } = state.lib;
     const info = state.info || {};
@@ -1503,7 +1533,9 @@
         heading,
         el('p', {
           class: 'modal-desc',
-          text: isNew ? `令牌将创建在：${selected.createDir}` : `令牌 ${selected.serial.slice(0, 8)}… · ${selected.path}`,
+          text: isNew
+            ? `令牌将创建在：${selected.createDir}\n若该位置已有别的系统的令牌，会另存到 <平台>/DocVault.key（如 mac/DocVault.key），不会覆盖。`
+            : `令牌 ${selected.serial.slice(0, 8)}… · ${selected.path}`,
         }),
         pinFields,
         freeRow,
@@ -1534,7 +1566,7 @@
         });
         try {
           const result = await enroll(false);
-          stepRecovery(result.recoveryCode, free, result.drive);
+          stepRecovery(result.recoveryCode, free, result.drive, result.tokenPath);
         } catch (err) {
           submit.disabled = false;
           if (selected.createDir && /已经有一枚令牌/.test(err.message)) {
@@ -1547,7 +1579,7 @@
                 submit.disabled = true;
                 const result = await enroll(true);
                 // 等 confirmDialog 关闭当前弹窗后再展示恢复码
-                setTimeout(() => stepRecovery(result.recoveryCode, free, result.drive), 0);
+                setTimeout(() => stepRecovery(result.recoveryCode, free, result.drive, result.tokenPath), 0);
               },
             });
           } else {
@@ -1559,7 +1591,7 @@
     }
 
     // ---- 第三步：恢复码（必须确认保存才能完成） ----
-    function stepRecovery(code, pinFree = false, drive = null) {
+    function stepRecovery(code, pinFree = false, drive = null, tokenPath = null) {
       const savedCheck = el('input', { type: 'checkbox' });
       const doneBtn = el('button', { class: 'btn-primary', type: 'button', text: '完成', disabled: true });
       savedCheck.addEventListener('change', () => {
@@ -1590,7 +1622,8 @@
           ? `这枚令牌没有 PIN：插入即解锁。令牌丢失时可凭恢复码找回数据。请抄写或复制恢复码并保存在别处。`
           : '令牌丢失时，恢复码是找回数据的唯一途径。请抄写或复制到安全的地方（不要只存在这台电脑上）。' }),
         el('div', { class: 'recovery-code', text: code }),
-        drive ? el('p', { class: 'hint', text: `已绑定当前 U 盘编码：${drive}。把 DocVault.key 拷到别的 U 盘将无法解锁。` }) : null,
+        tokenPath ? el('p', { class: 'hint', text: `令牌文件：${tokenPath.split('/').pop().split('\\').pop()}` }) : null,
+        drive ? el('p', { class: 'hint', text: `已绑定当前 U 盘编码：${drive}。把令牌文件拷到别的 U 盘将无法解锁。` }) : null,
         el('div', { class: 'modal-actions' }, [copyBtn]),
         el('label', { class: 'check-row' }, [savedCheck, el('span', { text: '我已安全保存恢复码' })]),
         el('div', { class: 'modal-actions' }, [doneBtn]),
@@ -1718,6 +1751,7 @@
     bindEvents();
     dom.sortSelect.value = state.sort;
     setupSortMenu();
+    setupMoreMenu();
     try {
       const [lib, info] = await Promise.all([window.api.getLibrary(), window.api.getInfo()]);
       state.lib = lib;

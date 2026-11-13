@@ -631,7 +631,12 @@ function registerVaultIpc() {
 
   handleVault('vault:create-token', async ({ dir, pin, pinFree, force }) => {
     if (!dir) throw new Error('请先选择令牌存放位置');
-    return softToken.createToken(dir, pin, { pinFree: pinFree === true, force: force === true });
+    return softToken.createToken(dir, pin, {
+      pinFree: pinFree === true,
+      force: force === true,
+      // 多系统适配：同一张 U 盘已有别的系统的令牌时，另存为 DocVault-<平台>.key，不覆盖
+      allowMultiple: true,
+    });
   });
 
   // 启用保护（仅主窗口、尚未启用时）：绑定令牌 → 加密迁移 → 抹掉明文

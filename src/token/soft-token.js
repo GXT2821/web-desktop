@@ -27,15 +27,18 @@ const TOKEN_FILENAME = 'DocVault.key';
 // 发现层按这个模式扫描：DocVault.key / DocVault-mac.key / DocVault-win-2.key …
 const TOKEN_PATTERN = /^DocVault[^/\\]*\.key$/i;
 
-// 选一个不冲突的令牌文件名：默认 DocVault.key，已存在就按平台加后缀。
-// 注意：force 覆盖仍然只针对 DocVault.key（旧行为不变）。
-function tokenFileName(dir) {
+// 令牌在 U 盘上的位置。多系统各一枚时按系统分目录，一眼能看出哪枚属于哪套系统：
+//   第一枚        <U盘>/DocVault.key
+//   之后          <U盘>/mac/DocVault.key、<U盘>/win/DocVault.key、<U盘>/linux/DocVault.key
+//   同系统第二枚  <U盘>/mac-2/DocVault.key
+// 发现层本来就扫描挂载点下一层目录，所以分目录不需要额外配置。
+function tokenRelativePath(dir) {
   if (!fs.existsSync(path.join(dir, TOKEN_FILENAME))) return TOKEN_FILENAME;
   const tag = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
-  let name = `DocVault-${tag}.key`;
+  let folder = tag;
   let index = 2;
-  while (fs.existsSync(path.join(dir, name))) name = `DocVault-${tag}-${index++}.key`;
-  return name;
+  while (fs.existsSync(path.join(dir, folder, TOKEN_FILENAME))) folder = `${tag}-${index++}`;
+  return path.join(folder, TOKEN_FILENAME);
 }
 const TOKEN_TYPE = 'docvault-soft-token';
 const MAX_ATTEMPTS = 8;
@@ -109,7 +112,9 @@ async function createToken(dir, pin, options = {}) {
   }
   // allowMultiple：同一个目录里再放一枚（按平台命名，例如 DocVault-mac.key），
   // 用于"每套系统一枚令牌"共用同一个 U 盘。force 覆盖时仍然写 DocVault.key。
-  const file = force ? target : path.join(dir, tokenFileName(dir));
+  const relative = force ? TOKEN_FILENAME : tokenRelativePath(dir);
+  const file = path.join(dir, relative);
+  if (!force) fs.mkdirSync(path.dirname(file), { recursive: true });
   // 绑定到"这张 U 盘"的卷序列号；识别不到时退化为不绑定（保持可用）
   const driveInfo = Object.hasOwn(options, 'drive') ? options.drive : drive.identify(file);
 
@@ -269,7 +274,7 @@ function bindDrive(file) {
 module.exports = {
   TOKEN_FILENAME,
   TOKEN_PATTERN,
-  tokenFileName,
+  tokenRelativePath,
   TOKEN_TYPE,
   MAX_ATTEMPTS,
   createToken,

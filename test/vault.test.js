@@ -472,9 +472,10 @@ test('多令牌：同一个 U 盘目录可放多枚令牌，追加后两枚都�
     // 同一目录再建一枚：默认拒绝，allowMultiple 时另存为 DocVault-<平台>.key
     await assert.rejects(() => soft.createToken(tokenDir, '654321'), /已经有一枚令牌/);
     const second = await soft.createToken(tokenDir, '654321', { allowMultiple: true });
-    assert.notEqual(second.path, first.path, '第二枚要写到另一个文件');
+    assert.notEqual(second.path, first.path, '第二枚要写到另一个位置');
     assert.equal(path.basename(first.path), 'DocVault.key');
-    assert.match(path.basename(second.path), /^DocVault-(win|mac|linux)(-\d+)?\.key$/);
+    // 按系统分目录：<U盘>/mac/DocVault.key
+    assert.match(path.relative(tokenDir, second.path), /^(win|mac|linux)(-\d+)?[\\/]DocVault\.key$/);
 
     // 解锁后追加第二枚
     const added = await vault.addToken({ tokenPath: second.path, pin: '654321' });

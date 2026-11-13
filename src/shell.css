@@ -134,6 +134,17 @@ svg {
   letter-spacing: 0.2px;
 }
 
+.more-btn {
+  margin-left: 4px;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-3);
+}
+
 .brand-text {
   display: flex;
   flex-direction: column;
