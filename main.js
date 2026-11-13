@@ -45,6 +45,9 @@ try {
 const vault = new Vault(DATA_DIR);
 let store = null;
 let mainWindow = null;
+// 打开中的网页标签（标题/链接/活动项）。只存内存：锁定后窗口销毁，
+// 解锁重建时用它恢复标签；不落盘，避免锁定时把文档链接明文写到磁盘。
+let sessionTabs = null;
 let lockWindow = null;
 let lastActivity = Date.now();
 const IDLE_MINUTES = Math.max(1, Number(process.env.DOCVAULT_IDLE_MINUTES) || 10);
@@ -380,6 +383,26 @@ function exportFilename() {
   const now = new Date();
   const pad = (value) => String(value).padStart(2, '0');
   return `DocVault-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+}
+
+function registerSessionIpc() {
+  ipcMain.on('session:save', (event, state) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
+    if (!state || !Array.isArray(state.tabs)) return;
+    sessionTabs = {
+      tabs: state.tabs
+        .filter((t) => t && typeof t.url === 'string')
+        .slice(0, 50)
+        .map((t) => ({
+          url: String(t.url).slice(0, 2048),
+          title: String(t.title || '').slice(0, 200),
+          docId: t.docId ? String(t.docId).slice(0, 64) : null,
+        })),
+      activeIndex: Number.isInteger(state.activeIndex) ? state.activeIndex : 0,
+    };
+  });
+  // 与其它通道保持同样的 { ok, data } 返回形状（preload 的 call() 依赖它）
+  ipcMain.handle('session:get', () => ({ ok: true, data: sessionTabs }));
 }
 
 function registerIpc() {
@@ -937,6 +960,7 @@ if (!gotLock) {
     setupMenu();
     registerIpc();
     registerVaultIpc();
+    registerSessionIpc();
 
     // 未打包时 macOS 的 Dock 图标取自 Electron 本体，这里换成应用图标
     if (process.platform === 'darwin' && !app.isPackaged && app.dock) {

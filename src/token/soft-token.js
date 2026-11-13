@@ -27,18 +27,43 @@ const TOKEN_FILENAME = 'DocVault.key';
 // 发现层按这个模式扫描：DocVault.key / DocVault-mac.key / DocVault-win-2.key …
 const TOKEN_PATTERN = /^DocVault[^/\\]*\.key$/i;
 
-// 令牌在 U 盘上的位置。多系统各一枚时按系统分目录，一眼能看出哪枚属于哪套系统：
-//   第一枚        <U盘>/DocVault.key
-//   之后          <U盘>/mac/DocVault.key、<U盘>/win/DocVault.key、<U盘>/linux/DocVault.key
-//   同系统第二枚  <U盘>/mac-2/DocVault.key
-// 发现层本来就扫描挂载点下一层目录，所以分目录不需要额外配置。
+// 令牌在 U 盘上的位置：**始终按系统分目录**，不再出现"第一枚放根目录、
+// 第二枚才分目录"的不一致（停用后重新启用会又变回根目录，很容易混淆）。
+//   macOS    <U盘>/mac/DocVault.key
+//   Windows  <U盘>/win/DocVault.key
+//   Linux    <U盘>/linux/DocVault.key
+// 同一系统再建第二枚放 mac-2/。发现层扫描挂载点及下一层，无需额外配置。
+// 兼容：根目录已有的老令牌（DocVault.key）仍会被扫描到。
+function platformTag() {
+  return process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
+}
+
+function tokenFolder(dir) {
+  const tag = platformTag();
+  // 用户选的就是按系统分好的目录（…/mac、…/mac-2）时直接放里面，避免 mac/mac
+  const base = path.basename(dir);
+  if (base === tag || new RegExp(`^${tag}-\\d+$`).test(base)) return null;
+  return tag;
+}
+
+// 该目录下"本系统第一枚"应该落在哪（mac/DocVault.key）
+function firstTokenPath(dir) {
+  const folder = tokenFolder(dir);
+  return folder ? path.join(folder, TOKEN_FILENAME) : TOKEN_FILENAME;
+}
+
+// 找空位：mac/DocVault.key → mac-2/DocVault.key → mac-3/…
 function tokenRelativePath(dir) {
-  if (!fs.existsSync(path.join(dir, TOKEN_FILENAME))) return TOKEN_FILENAME;
-  const tag = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
-  let folder = tag;
+  const first = firstTokenPath(dir);
+  if (!fs.existsSync(path.join(dir, first))) return first;
+  const folder = tokenFolder(dir) || platformTag();
   let index = 2;
-  while (fs.existsSync(path.join(dir, folder, TOKEN_FILENAME))) folder = `${tag}-${index++}`;
-  return path.join(folder, TOKEN_FILENAME);
+  let candidate = path.join(`${folder}-${index}`, TOKEN_FILENAME);
+  while (fs.existsSync(path.join(dir, candidate))) {
+    index += 1;
+    candidate = path.join(`${folder}-${index}`, TOKEN_FILENAME);
+  }
+  return candidate;
 }
 const TOKEN_TYPE = 'docvault-soft-token';
 const MAX_ATTEMPTS = 8;
@@ -105,14 +130,14 @@ async function createToken(dir, pin, options = {}) {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
     throw new Error('令牌目录不存在，请先把 U 盘插好');
   }
-  const target = path.join(dir, TOKEN_FILENAME);
   const allowMultiple = options.allowMultiple === true;
-  if (fs.existsSync(target) && !force && !allowMultiple) {
-    throw new Error('这个位置已经有一枚令牌（DocVault.key）。继续会覆盖它，请确认后再试');
+  const firstPath = path.join(dir, firstTokenPath(dir));
+  if (!force && !allowMultiple && fs.existsSync(firstPath)) {
+    throw new Error('这个位置已经有一枚令牌。继续会覆盖它，请确认后再试');
   }
   // allowMultiple：同一个目录里再放一枚（按平台命名，例如 DocVault-mac.key），
   // 用于"每套系统一枚令牌"共用同一个 U 盘。force 覆盖时仍然写 DocVault.key。
-  const relative = force ? TOKEN_FILENAME : tokenRelativePath(dir);
+  const relative = force ? TOKEN_FILENAME : allowMultiple ? tokenRelativePath(dir) : firstTokenPath(dir);
   const file = path.join(dir, relative);
   if (!force) fs.mkdirSync(path.dirname(file), { recursive: true });
   // 绑定到"这张 U 盘"的卷序列号；识别不到时退化为不绑定（保持可用）

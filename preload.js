@@ -68,6 +68,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('downloads:failed', (_event, payload) => callback(payload));
   },
   // 主进程转发：焦点在网页里时按下的应用级快捷键
+  // 打开中的标签页（仅内存，供锁定后重建窗口时恢复）
+  saveSession: (state) => ipcRenderer.send('session:save', state),
+  getSession: () => call('session:get'),
   onMenuAction: (callback) => {
     ipcRenderer.on('menu-action', (_event, id) => callback(id));
   },

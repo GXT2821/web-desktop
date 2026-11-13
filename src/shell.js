@@ -131,6 +131,7 @@
       item.label.textContent = pageTitle;
       tabEl.title = item.currentUrl;
       scheduleRelayout();
+      saveSession();
     });
 
     webview.addEventListener('did-fail-load', (event) => {
@@ -143,6 +144,7 @@
 
     tabs.push(item);
     scheduleRelayout();
+    saveSession();
     dom.tabbar.append(tabEl);
     dom.content.append(viewEl);
     return item;
@@ -406,6 +408,50 @@
     enforceLiveLimit();
     item.tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     scheduleRelayout();
+    saveSession();
+  }
+
+  // 恢复完成前不要保存：启动时 activate(文档库) 会先触发一次保存，
+  // 那一次会把主进程里待恢复的会话覆盖成空。
+  let sessionReady = false;
+
+  // 把当前打开着的网页标签同步给主进程（仅内存），锁定/重建窗口时恢复。
+  // 只在网页标签增删、切换、标题变化时调用。
+  function saveSession() {
+    if (!sessionReady) return;
+    try {
+      const list = tabs.filter((t) => t.kind === 'web');
+      window.api.saveSession({
+        tabs: list.map((t) => ({ url: t.currentUrl || t.url, title: t.title, docId: t.docId })),
+        activeIndex: Math.max(0, list.indexOf(activeTab)),
+      });
+    } catch {
+      /* 忽略：状态同步失败不影响使用 */
+    }
+  }
+
+  // 解锁/重建窗口后，把上次的标签页放回来（惰性加载，只有激活的那个真正打开）
+  async function restoreSession() {
+    let saved = null;
+    try {
+      saved = await window.api.getSession();
+    } catch {
+      return;
+    }
+    if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) {
+      sessionReady = true;
+      return;
+    }
+    const restored = [];
+    for (const tab of saved.tabs) {
+      if (!tab || !tab.url) continue;
+      restored.push(createWebTab({ url: tab.url, title: tab.title || hostOf(tab.url), docId: tab.docId || null }));
+    }
+    if (!restored.length) return;
+    const index = Math.min(Math.max(saved.activeIndex || 0, 0), restored.length - 1);
+    activate(restored[index]);
+    sessionReady = true;
+    Library.toast(`已恢复 ${restored.length} 个标签页`);
   }
 
   function closeTab(item) {
@@ -416,7 +462,10 @@
     item.tabEl.remove();
     item.viewEl.remove(); // 移除 <webview> 会销毁对应 guest，链接与登录态仍留在 session 里
     if (activeTab === item) activate(tabs[Math.min(idx, tabs.length - 1)] || libraryTab);
-    else scheduleRelayout();
+    else {
+      scheduleRelayout();
+      saveSession();
+    }
   }
 
   // 打开已收藏的文档（同一个文档只开一个标签）
@@ -762,6 +811,9 @@
         syncTabLabels();
       },
     });
+
+    // 库数据就绪后再恢复标签（createWebTab 会用到库里的标题/自动补全逻辑）
+    await restoreSession();
   }
 
   boot();

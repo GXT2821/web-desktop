@@ -52,9 +52,14 @@ function scanDir(dir) {
   return found;
 }
 
-// 根目录（U 盘根）直接找；挂载点目录（/Volumes、/media）再下探一层
-function scanRoot(root) {
+// 根目录（U 盘根）直接找；挂载点目录（/Volumes、/media）再下探。
+// 令牌现在放在 <U盘>/<平台>/DocVault.key，如果用户选的是 U 盘里的子目录，
+// 还会再深一层（<U盘>/DocVault/mac/DocVault.key），所以最多下探两层。
+const MAX_DEPTH = 2;
+
+function scanTree(root, depth) {
   const found = scanDir(root);
+  if (depth <= 0) return found;
   let entries = [];
   try {
     entries = fs.readdirSync(root, { withFileTypes: true });
@@ -63,9 +68,15 @@ function scanRoot(root) {
   }
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    found.push(...scanDir(path.join(root, entry.name)));
+    // 跳过明显的系统目录，避免在 /Volumes 之外误扫
+    if (entry.name.startsWith('.')) continue;
+    found.push(...scanTree(path.join(root, entry.name), depth - 1));
   }
   return found;
+}
+
+function scanRoot(root) {
+  return scanTree(root, MAX_DEPTH);
 }
 
 // 返回当前插着的所有令牌（按序列号去重，同一枚令牌出现在两个挂载点只算一次）
