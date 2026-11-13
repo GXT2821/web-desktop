@@ -616,6 +616,9 @@ function registerVaultIpc() {
     ready: pendingEnter,
   }));
   handleVault('vault:detect', () => tokenProvider.discover());
+  handleVault('vault:tokens', () => vault.tokenList());
+  handleVault('vault:add-token', ({ tokenPath, pin } = {}) => vault.addToken({ tokenPath, pin }));
+  handleVault('vault:remove-token', ({ serial } = {}) => vault.removeToken(serial));
 
   handleVault('vault:pick-dir', async (_payload, origin) => {
     const parent = origin === 'main' ? mainWindow : lockWindow;

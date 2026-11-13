@@ -42,6 +42,9 @@ contextBridge.exposeInMainWorld('api', {
   // U盾保护（启用/停用/锁定；解锁在独立的锁定窗口里完成）
   vaultStatus: () => call('vault:status'),
   vaultDetect: () => call('vault:detect'),
+  vaultTokens: () => call('vault:tokens'),
+  vaultAddToken: (tokenPath, pin) => call('vault:add-token', { tokenPath, pin }),
+  vaultRemoveToken: (serial) => call('vault:remove-token', { serial }),
   vaultPickDir: () => call('vault:pick-dir'),
   vaultCreateToken: (dir, pin) => call('vault:create-token', { dir, pin }),
   vaultEnroll: (payload) => call('vault:enroll', payload),

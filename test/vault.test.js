@@ -542,3 +542,23 @@ test('drive.mountRoot：macOS 解析到 /Volumes/<盘名>，而不是根目录',
     assert.equal(drive.mountRoot('D:\\DocVault.key'), 'D:\\');
   }
 });
+
+test('多令牌：tokenList 返回已绑定的令牌与在场状态', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const first = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
+    const secondDir = path.join(tokenDir, 'b');
+    fs.mkdirSync(secondDir);
+    const second = await soft.createToken(secondDir, '654321');
+    await vault.addToken({ tokenPath: second.path, pin: '654321' });
+
+    const list = vault.tokenList();
+    assert.equal(list.length, 2);
+    assert.deepEqual(list.map((t) => t.serial).sort(), [first.serial, second.serial].sort());
+    for (const token of list) {
+      assert.equal(token.pinFree, false);
+      assert.equal(token.present, true, '两枚令牌文件都还在，应显示在场');
+      assert.ok(token.path, '应带令牌路径');
+    }
+  }));

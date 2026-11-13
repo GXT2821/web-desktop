@@ -486,6 +486,21 @@ class Vault {
     }
   }
 
+  // 已绑定的令牌清单（给界面展示/管理用）
+  tokenList() {
+    if (!this.isEnabled()) return [];
+    const meta = this.#meta();
+    return meta.tokens.map((record) => ({
+      serial: record.serial,
+      pinFree: record.pinFree === true,
+      driveId: record.driveId || null,
+      path: record.path || null,
+      present: Boolean(
+        (record.path && soft.readTokenInfo(record.path)) || provider.findBySerial(record.serial)
+      ),
+    }));
+  }
+
   // 作废一枚令牌：删掉它的 wrap 记录，之后这枚令牌解不开保险库。
   // 至少要留一枚——彻底停用请走「停用 U盾保护」。
   removeToken(serial) {

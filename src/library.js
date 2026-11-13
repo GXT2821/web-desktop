@@ -409,6 +409,7 @@
                 : '已绑定 1 枚令牌',
             }),
             el('button', { type: 'button', text: '锁定', title: '立即锁定文档库', onclick: lockVault }),
+            el('button', { type: 'button', text: '令牌…', title: '查看已绑定的令牌、添加或作废', onclick: vaultTokensDialog }),
             el('button', { type: 'button', text: '停用', title: '停用 U盾保护（需要令牌 PIN）', onclick: vaultDisableDialog }),
             el('button', { type: 'button', text: '重置…', title: '清空文档库并恢复出厂状态', onclick: resetDialog }),
           ]
@@ -1126,6 +1127,181 @@
   }
 
   // 启用向导：选令牌 → PIN → 保存恢复码
+  // ---------- 令牌管理 ----------
+  function vaultTokensDialog() {
+    const list = el('div', { class: 'token-list' });
+    const hint = el('p', { class: 'modal-desc', text: '' });
+    let tokens = [];
+
+    const render = () => {
+      clear(list);
+      tokens.forEach((token) => {
+        const canRemove = tokens.length > 1;
+        list.append(
+          el('div', { class: 'token-row' }, [
+            el('div', { class: 'token-main' }, [
+              el('span', { class: 'token-serial', text: token.serial }),
+              el('span', {
+                class: `token-badge${token.pinFree ? ' free' : ''}`,
+                text: token.pinFree ? '免 PIN' : '需 PIN',
+              }),
+              el('span', {
+                class: `token-badge${token.present ? ' present' : ''}`,
+                text: token.present ? '在场' : '不在',
+              }),
+            ]),
+            el('div', { class: 'token-sub', text: token.driveId ? `盘：${token.driveId}` : '未绑定盘（任何 U 盘都认）' }),
+            el('button', {
+              class: 'btn-ghost token-remove',
+              type: 'button',
+              text: '解绑',
+              disabled: !canRemove,
+              title: canRemove ? '作废这枚令牌，之后它解不开保险库' : '至少要保留一枚令牌',
+              onclick: () => {
+                confirmDialog({
+                  title: '解绑这枚令牌？',
+                  desc: `令牌 ${token.serial} 将无法再解锁。其余令牌不受影响，随时可以作废操作。`,
+                  confirmText: '解绑',
+                  onConfirm: async () => {
+                    try {
+                      await window.api.vaultRemoveToken(token.serial);
+                      toast('已解绑该令牌');
+                      await refresh();
+                    } catch (err) {
+                      toast(err.message, true);
+                    }
+                  },
+                });
+              },
+            }),
+          ])
+        );
+      });
+      hint.textContent = tokens.length > 1
+        ? `共 ${tokens.length} 枚令牌，任意一枚在场都能解锁。`
+        : tokens.length === 1
+          ? '共 1 枚令牌：至少要保留一枚，不能解绑。'
+          : '还没有绑定令牌（保险库可能未启用或元数据异常）。';
+    };
+
+    const refresh = async () => {
+      tokens = await window.api.vaultTokens();
+      render();
+    };
+
+    const addBtn = el('button', {
+      class: 'btn-primary',
+      type: 'button',
+      text: '绑定新令牌…',
+      onclick: () => vaultAddTokenDialog(() => refresh()),
+    });
+
+    openModal(
+      el('div', {}, [
+        el('h2', { text: '令牌管理' }),
+        el('p', { class: 'modal-desc', text: '同一个保险库可以绑定多枚令牌（例如 Windows、macOS 各一枚），数据是同一份。' }),
+        list,
+        hint,
+        el('div', { class: 'modal-actions' }, [el('button', { class: 'btn-ghost', type: 'button', text: '关闭', onclick: closeModal }), addBtn]),
+      ])
+    );
+    refresh().catch((err) => toast(err.message, true));
+  }
+
+  // 从"已插入但还没绑定"的令牌里挑一枚，输入 PIN 后追加进保险库
+  function vaultAddTokenDialog(onDone) {
+    const list = el('div', { class: 'token-list' });
+    const errorText = el('p', { class: 'error-text', hidden: true, text: '' });
+    let picked = null;
+    let found = [];
+
+    const showError = (message) => {
+      errorText.textContent = message;
+      errorText.hidden = !message;
+    };
+
+    const pinInput = el('input', { type: 'password', maxlength: '16', placeholder: '这枚令牌的 PIN（免 PIN 令牌留空）' });
+    const freeHint = el('span', { class: 'token-sub', text: '' });
+
+    const selectRow = (token) => {
+      picked = token;
+      [...list.children].forEach((row) => row.classList.toggle('selected', row.dataset.serial === token.serial));
+      freeHint.textContent = token.pinFree ? '这枚令牌是免 PIN 的，直接绑定即可。' : '';
+      showError('');
+    };
+
+    const submit = el('button', {
+      class: 'btn-primary',
+      type: 'button',
+      text: '绑定',
+      onclick: async () => {
+        if (!picked) return showError('请先选择一枚令牌');
+        submit.disabled = true;
+        try {
+          await window.api.vaultAddToken(picked.path, picked.pinFree ? '' : pinInput.value);
+          toast('已绑定新令牌');
+          closeModal();
+          if (onDone) onDone();
+        } catch (err) {
+          showError(err.message);
+          submit.disabled = false;
+        }
+      },
+    });
+
+    const render = () => {
+      clear(list);
+      if (!found.length) {
+        list.append(el('p', { class: 'modal-desc', text: '没有发现未绑定的令牌。请把含有 DocVault.key 的 U 盘插上，再点「重新扫描」。' }));
+        return;
+      }
+      for (const token of found) {
+        const row = el('button', {
+          class: 'token-row token-pick',
+          type: 'button',
+          'data-serial': token.serial,
+          onclick: () => selectRow(token),
+        }, [
+          el('div', { class: 'token-main' }, [
+            el('span', { class: 'token-serial', text: token.serial }),
+            el('span', { class: `token-badge${token.pinFree ? ' free' : ''}`, text: token.pinFree ? '免 PIN' : '需 PIN' }),
+          ]),
+          el('div', { class: 'token-sub', text: token.path }),
+        ]);
+        list.append(row);
+      }
+    };
+
+    const rescan = async () => {
+      try {
+        const [detected, bound] = await Promise.all([window.api.vaultDetect(), window.api.vaultTokens()]);
+        const boundSerials = new Set(bound.map((t) => t.serial));
+        found = detected.filter((t) => !boundSerials.has(t.serial));
+        picked = null;
+        render();
+      } catch (err) {
+        showError(err.message);
+      }
+    };
+
+    openModal(
+      el('div', {}, [
+        el('h2', { text: '绑定新令牌' }),
+        el('p', { class: 'modal-desc', text: '插入那枚已经在别的系统上建好的令牌 U 盘，选中它并输入 PIN，就能追加到这个保险库。' }),
+        list,
+        freeHint,
+        pinInput,
+        errorText,
+        el('div', { class: 'modal-actions' }, [
+          el('button', { class: 'btn-ghost', type: 'button', text: '取消', onclick: () => { closeModal(); if (onDone) onDone(); } }),
+          el('button', { class: 'btn-ghost', type: 'button', text: '重新扫描', onclick: rescan }),
+          submit,
+        ]),
+      ])
+    );
+    rescan();
+  }
+
   function vaultEnrollWizard() {
     let selected = null; // { path, serial } 或 { createDir }
     const errorText = el('p', { class: 'error', hidden: true });
@@ -1466,6 +1642,7 @@
     toast,
     addDocDialog,
     newFolderDialog,
+    vaultTokensDialog,
     focusSearch: () => {
       dom.search.focus();
       dom.search.select();
