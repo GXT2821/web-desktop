@@ -372,64 +372,156 @@
     }
   }
 
-  function renderFoot() {
-    const { docs, folders } = state.lib;
-    clear(dom.sideFoot);
+  // ---------- 侧栏菜单栏（文件 / U盾 / 帮助） ----------
+  let openMenuEl = null;
+  let menuCloseHandler = null;
 
-    const info = state.info || {};
-    dom.sideFoot.append(
-      el('div', { text: `${docs.length} 条记录 · ${folders.length} 个文件夹` }),
-      el('div', {}, [
+  function closeMenuBar() {
+    if (openMenuEl) {
+      openMenuEl.remove();
+      openMenuEl = null;
+    }
+    if (menuCloseHandler) {
+      document.removeEventListener('pointerdown', menuCloseHandler, true);
+      menuCloseHandler = null;
+    }
+    for (const btn of dom.sideTools.querySelectorAll('.menubar-item')) {
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function openMenuBar(anchor, actions) {
+    closeMenuBar();
+    const menu = el('div', { class: 'menubar-menu', role: 'menu' });
+    for (const action of actions) {
+      if (action.separator) {
+        menu.append(el('div', { class: 'menubar-sep' }));
+        continue;
+      }
+      menu.append(
         el('button', {
+          class: 'menubar-entry',
+          role: 'menuitem',
           type: 'button',
-          title: state.lib.dataFile,
-          text: '打开数据文件位置',
-          onclick: async () => {
-            try {
-              await window.api.revealDataFile();
-            } catch (err) {
-              toast(err.message, true);
-            }
+          text: action.label,
+          disabled: action.disabled === true,
+          title: action.hint || action.label,
+          onclick: () => {
+            closeMenuBar();
+            action.onClick();
           },
-        }),
-        ` · v${info.appVersion || '1.0.0'}`,
-      ])
-    );
+        })
+      );
+    }
+    document.body.append(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.top = `${Math.round(rect.bottom + 4)}px`;
+    menu.style.left = `${Math.round(Math.max(8, rect.left))}px`;
+    anchor.setAttribute('aria-expanded', 'true');
+    openMenuEl = menu;
+    menuCloseHandler = (event) => {
+      if (menu.contains(event.target) || anchor.contains(event.target)) return;
+      closeMenuBar();
+    };
+    document.addEventListener('pointerdown', menuCloseHandler, true);
+  }
 
-    // U盾保护状态行
-    const vaultInfo = info.vault || { enabled: false };
-    dom.sideFoot.append(
-      el('div', { class: 'vault-row' }, vaultInfo.enabled
-        ? [
-            el('span', {
-              class: 'vault-on',
-              text: `🔒 U盾保护中${vaultInfo.tokenCount > 1 ? `（${vaultInfo.tokenCount} 枚令牌）` : ''}`,
-              title: vaultInfo.tokenCount > 1
-                ? `已绑定 ${vaultInfo.tokenCount} 枚令牌，任意一枚在场都能解锁`
-                : '已绑定 1 枚令牌',
-            }),
-            el('button', { type: 'button', text: '锁定', title: '立即锁定文档库', onclick: lockVault }),
-            el('button', { type: 'button', text: '令牌…', title: '查看已绑定的令牌、添加或作废', onclick: vaultTokensDialog }),
-            el('button', { type: 'button', text: '停用', title: '停用 U盾保护（需要令牌 PIN）', onclick: vaultDisableDialog }),
-            el('button', { type: 'button', text: '重置…', title: '清空文档库并恢复出厂状态', onclick: resetDialog }),
-          ]
-        : [
-            el('button', {
-              type: 'button',
-              text: '启用 U盾保护',
-              title: '用令牌 U 盘加密文档库：没有令牌和 PIN，数据文件无法读取',
-              onclick: vaultEnrollWizard,
-            }),
-            el('button', { type: 'button', text: '重置…', title: '清空文档库并恢复出厂状态', onclick: resetDialog }),
-          ])
+  function aboutDialog() {
+    const info = state.info || {};
+    openModal(
+      el('div', {}, [
+        el('h2', { text: '关于文档库' }),
+        el('p', { class: 'modal-desc', text: `版本 v${info.appVersion || '1.0.0'} · Electron ${info.electron || '-'} · Chrome ${(info.chrome || '').split(' ')[0]}` }),
+        el('p', { class: 'modal-desc', text: `数据文件：${state.lib.dataFile || '（未知）'}` }),
+        el('p', { class: 'modal-desc', text: '数据只存在本机，没有账号、没有云端、没有埋点。' }),
+        el('div', { class: 'modal-actions' }, [
+          el('button', {
+            class: 'btn-ghost',
+            type: 'button',
+            text: '打开数据文件位置',
+            onclick: () => { closeModal(); window.api.revealDataFile().catch((err) => toast(err.message, true)); },
+          }),
+          el('button', { class: 'btn-primary', type: 'button', text: '关闭', onclick: closeModal }),
+        ]),
+      ])
     );
   }
 
-  // ==================== 渲染：列表 ====================
-  // ---------- 排序下拉（自绘）----------
-  // 原生 <select> 在 Android WebView 里弹出的是系统菜单（还有白底大圆角），
-  // 和界面完全不搭；这里把它藏起来，用一个自绘菜单代理，
-  // 值仍然写回 <select> 并派发 change，原有逻辑一行都不用改。
+  function renderFoot() {
+    const { docs, folders } = state.lib;
+    const info = state.info || {};
+    const vaultInfo = info.vault || { enabled: false };
+
+    // 顶部菜单栏
+    clear(dom.sideTools);
+    const menus = [
+      {
+        label: '文件',
+        actions: [
+          { label: '打开数据文件位置', onClick: () => window.api.revealDataFile().catch((err) => toast(err.message, true)) },
+          { separator: true },
+          { label: '重置…', hint: '清空文档库并恢复出厂状态', onClick: resetDialog },
+        ],
+      },
+      {
+        label: 'U盾',
+        actions: vaultInfo.enabled
+          ? [
+              { label: '锁定', onClick: lockVault },
+              {
+                label: vaultInfo.tokenCount > 1 ? `令牌管理（${vaultInfo.tokenCount} 枚）…` : '令牌管理…',
+                onClick: vaultTokensDialog,
+              },
+              { separator: true },
+              { label: '停用 U盾保护…', onClick: vaultDisableDialog },
+            ]
+          : [{ label: '启用 U盾保护…', onClick: vaultEnrollWizard }],
+      },
+      {
+        label: '帮助',
+        actions: [{ label: '关于文档库…', onClick: aboutDialog }],
+      },
+    ];
+
+    for (const menu of menus) {
+      const btn = el('button', {
+        class: 'menubar-item',
+        type: 'button',
+        text: menu.label,
+        'aria-haspopup': 'menu',
+        'aria-expanded': 'false',
+        onclick: (event) => {
+          event.stopPropagation();
+          if (openMenuEl && btn.getAttribute('aria-expanded') === 'true') {
+            closeMenuBar();
+            return;
+          }
+          openMenuBar(btn, menu.actions);
+        },
+      });
+      dom.sideTools.append(btn);
+    }
+
+    dom.sideTools.append(
+      el('span', {
+        class: 'menubar-status',
+        text: vaultInfo.enabled ? '🔒' : '',
+        title: vaultInfo.enabled
+          ? `U盾保护中${vaultInfo.tokenCount > 1 ? `（${vaultInfo.tokenCount} 枚令牌）` : ''}`
+          : '',
+      })
+    );
+
+    // 底部统计
+    clear(dom.sideFoot);
+    dom.sideFoot.append(
+      el('div', {}, [
+        el('span', { text: `${docs.length} 条记录 · ${folders.length} 个文件夹` }),
+        el('span', { class: 'foot-ver', text: `v${info.appVersion || '1.0.0'}` }),
+      ])
+    );
+  }
+
   function setupSortMenu() {
     const select = dom.sortSelect;
     if (!select || select.dataset.custom === '1') return;
@@ -1104,6 +1196,7 @@
       clearTagsBtn: document.getElementById('clearTagsBtn'),
       addFolderBtn: document.getElementById('addFolderBtn'),
       sideFoot: document.getElementById('sideFoot'),
+      sideTools: document.getElementById('sideTools'),
       search: document.getElementById('search'),
       searchClear: document.getElementById('searchClear'),
       sortSelect: document.getElementById('sortSelect'),

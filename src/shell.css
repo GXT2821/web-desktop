@@ -1687,6 +1687,91 @@ svg {
 .dl-state-ok { color: var(--text-3); }
 .dl-state-err { color: #c0392b; }
 
+/* ===== 侧栏菜单栏（文件 / U盾 / 帮助） ===== */
+.side-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px 8px;
+}
+
+.menubar-item {
+  padding: 3px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menubar-item:hover,
+.menubar-item[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.menubar-item[aria-expanded="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.menubar-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.menubar-menu {
+  position: fixed;
+  z-index: 320;
+  min-width: 168px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(23, 22, 46, 0.18);
+}
+
+.menubar-entry {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menubar-entry:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.menubar-entry:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
+.menubar-sep {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--border);
+}
+
+.foot-ver {
+  margin-left: 8px;
+  color: var(--text-3);
+}
+
 /* ===== 令牌管理（U盾） ===== */
 .token-list {
   display: flex;
