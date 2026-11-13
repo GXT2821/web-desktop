@@ -79,7 +79,15 @@ svg {
 /* ===== 整体布局 ===== */
 .app {
   display: flex;
+  flex-direction: column;
   height: 100vh;
+}
+
+/* 菜单栏以下的部分：侧栏 + 主区并排 */
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 
 .sidebar {
@@ -1687,12 +1695,16 @@ svg {
 .dl-state-ok { color: var(--text-3); }
 .dl-state-err { color: #c0392b; }
 
-/* ===== 侧栏菜单栏（文件 / U盾 / 帮助） ===== */
-.side-tools {
+/* ===== 窗口顶部菜单栏（文件 / U盾 / 帮助） ===== */
+.menubar {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 10px 8px;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
 }
 
 .menubar-item {
