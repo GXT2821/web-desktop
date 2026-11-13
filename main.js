@@ -638,7 +638,12 @@ function registerVaultIpc() {
     const free = pinFree === true;
     let usedPath = tokenPath;
     if (createDir) {
-      usedPath = (await softToken.createToken(createDir, pin, { pinFree: free, force: force === true })).path;
+      usedPath = (await softToken.createToken(createDir, pin, {
+        pinFree: free,
+        force: force === true,
+        // 恢复/换绑流程允许在已有令牌的 U 盘上再放一枚（每套系统一枚）
+        allowMultiple: true,
+      })).path;
     }
     if (!usedPath) throw new Error('请先选择或创建一枚令牌');
     const result = await vault.enroll({ tokenPath: usedPath, pin: free ? '' : pin, library: store.data });
@@ -712,7 +717,12 @@ function registerVaultIpc() {
     const free = pinFree === true;
     let usedPath = tokenPath;
     if (createDir) {
-      usedPath = (await softToken.createToken(createDir, pin, { pinFree: free, force: force === true })).path;
+      usedPath = (await softToken.createToken(createDir, pin, {
+        pinFree: free,
+        force: force === true,
+        // 恢复/换绑流程允许在已有令牌的 U 盘上再放一枚（每套系统一枚）
+        allowMultiple: true,
+      })).path;
     }
     if (!usedPath) throw new Error('请先选择或创建一枚令牌');
     return vault.rebind({ tokenPath: usedPath, pin: free ? '' : pin });

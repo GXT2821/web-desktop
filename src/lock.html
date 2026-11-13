@@ -79,7 +79,7 @@
       <!-- ===== 恢复码视图 ===== -->
       <section id="recoverView" hidden>
         <h1>恢复码解锁</h1>
-        <p class="lock-sub">输入启用保护时保存的 32 位恢复码。验证后需要绑定一枚新令牌。</p>
+        <p class="lock-sub">输入启用保护时保存的 32 位恢复码。验证后可再绑定一枚新令牌（原有令牌继续有效，适合在不同系统上各用一枚）。</p>
 
         <form id="recoverForm" autocomplete="off">
           <input
@@ -97,6 +97,7 @@
         <!-- 第二步：绑定新令牌 -->
         <div id="bindStep" hidden>
           <h2>绑定新令牌</h2>
+          <p class="lock-sub">新增的令牌会追加到库里，原有的令牌仍然可用。</p>
           <div class="token-list" id="bindTokenList"></div>
           <button class="btn-ghost" id="bindCreateBtn" type="button">在新位置创建令牌…</button>
           <form id="bindForm" autocomplete="off" hidden>

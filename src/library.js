@@ -401,7 +401,13 @@
     dom.sideFoot.append(
       el('div', { class: 'vault-row' }, vaultInfo.enabled
         ? [
-            el('span', { class: 'vault-on', text: '🔒 U盾保护中' }),
+            el('span', {
+              class: 'vault-on',
+              text: `🔒 U盾保护中${vaultInfo.tokenCount > 1 ? `（${vaultInfo.tokenCount} 枚令牌）` : ''}`,
+              title: vaultInfo.tokenCount > 1
+                ? `已绑定 ${vaultInfo.tokenCount} 枚令牌，任意一枚在场都能解锁`
+                : '已绑定 1 枚令牌',
+            }),
             el('button', { type: 'button', text: '锁定', title: '立即锁定文档库', onclick: lockVault }),
             el('button', { type: 'button', text: '停用', title: '停用 U盾保护（需要令牌 PIN）', onclick: vaultDisableDialog }),
             el('button', { type: 'button', text: '重置…', title: '清空文档库并恢复出厂状态', onclick: resetDialog }),

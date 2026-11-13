@@ -268,7 +268,7 @@ test('U 盘绑定：旧保险库解锁后就地升级为绑定', () =>
     const vault = new Vault(dataDir);
     await vault.enroll({ tokenPath: token.path, pin: '123456', library: SAMPLE });
     const metaBefore = JSON.parse(fs.readFileSync(path.join(dataDir, 'vault.json'), 'utf-8'));
-    assert.equal(metaBefore.token.driveId, null);
+    assert.equal(metaBefore.tokens ? metaBefore.tokens[0].driveId : metaBefore.token.driveId, null);
 
     vault.lock();
     await vault.unlock({ pin: '123456' });
@@ -277,7 +277,7 @@ test('U 盘绑定：旧保险库解锁后就地升级为绑定', () =>
     const drive = require('../src/token/drive');
     const current = drive.identify(token.path);
     if (current) {
-      assert.equal(metaAfter.token.driveId, current.volumeSerial, '解锁后应补上 driveId');
+      assert.equal(metaAfter.tokens[0].driveId, current.volumeSerial, '解锁后应补上 driveId');
       assert.equal(soft.readTokenInfo(token.path).boundDrive, current.volumeSerial, '令牌文件也应补上盘号');
     }
   }));
@@ -368,7 +368,7 @@ test('保险库：密文被篡改时解锁失败（GCM 完整性）', () =>
 
 // ---------- 恢复码 ----------
 
-test('恢复码：解锁 → 绑定新令牌 → 旧令牌失效、新恢复码生效', () =>
+test('恢复码：解锁 → 绑定新令牌（追加）→ 新旧令牌都可用、恢复码轮换', () =>
   withEnv(async ({ dataDir, tokenDir }) => {
     const oldToken = await soft.createToken(tokenDir, '123456');
     const vault = new Vault(dataDir);
@@ -391,11 +391,20 @@ test('恢复码：解锁 → 绑定新令牌 → 旧令牌失效、新恢复码�
     assert.equal(vault.status().locked, false);
     assert.deepEqual(vault.codec().decode(fs.readFileSync(path.join(dataDir, 'library.enc'))), SAMPLE);
 
-    // 旧令牌不再被接受；新令牌可以正常解锁
+    // 多令牌语义：旧令牌继续可用（跨系统共用一个保险库），新令牌同样可解锁
     vault.lock();
-    await assert.rejects(() => vault.unlock({ pin: '123456', tokenPath: oldToken.path }), /不匹配/);
-    await vault.unlock({ pin: '654321' });
+    await vault.unlock({ pin: '123456', tokenPath: oldToken.path });
     assert.equal(vault.status().locked, false);
+    vault.lock();
+    await vault.unlock({ pin: '654321', tokenPath: newToken.path });
+    assert.equal(vault.status().locked, false);
+    assert.equal(vault.status().tokenCount, 2, '两枚令牌都应记录在库里');
+    // 未绑定到本库的令牌会被明确拒绝
+    const strangerDir = path.join(tokenDir, 'token3');
+    fs.mkdirSync(strangerDir);
+    const stranger = await soft.createToken(strangerDir, '111111');
+    vault.lock();
+    await assert.rejects(() => vault.unlock({ pin: '111111', tokenPath: stranger.path }), /不匹配/);
   }));
 
 test('恢复码：规范化容忍分隔符与易混淆字符', () => {
@@ -451,3 +460,85 @@ test('停用保护：还原明文库并清掉保险库文件', () =>
     store.load();
     assert.equal(store.data.docs.length, 1);
   }));
+
+// ---------- 多令牌：一套系统一枚，共用一个保险库 ----------
+
+test('多令牌：同一个 U 盘目录可放多枚令牌，追加后两枚都能解锁', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const first = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
+
+    // 同一目录再建一枚：默认拒绝，allowMultiple 时另存为 DocVault-<平台>.key
+    await assert.rejects(() => soft.createToken(tokenDir, '654321'), /已经有一枚令牌/);
+    const second = await soft.createToken(tokenDir, '654321', { allowMultiple: true });
+    assert.notEqual(second.path, first.path, '第二枚要写到另一个文件');
+    assert.equal(path.basename(first.path), 'DocVault.key');
+    assert.match(path.basename(second.path), /^DocVault-(win|mac|linux)(-\d+)?\.key$/);
+
+    // 解锁后追加第二枚
+    const added = await vault.addToken({ tokenPath: second.path, pin: '654321' });
+    assert.equal(added.count, 2);
+    assert.equal(vault.status().tokenCount, 2);
+
+    // 两枚都能独立解锁
+    vault.lock();
+    await vault.unlock({ pin: '654321', tokenPath: second.path });
+    assert.equal(vault.status().locked, false);
+    vault.lock();
+    await vault.unlock({ pin: '123456', tokenPath: first.path });
+    assert.equal(vault.status().locked, false);
+
+    // 重复追加被拒
+    await assert.rejects(() => vault.addToken({ tokenPath: second.path, pin: '654321' }), /已经绑定过/);
+  }));
+
+test('多令牌：作废一枚后它解不开，其余仍可用；不能删光', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const first = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
+    const secondDir = path.join(tokenDir, 'b');
+    fs.mkdirSync(secondDir);
+    const second = await soft.createToken(secondDir, '654321');
+    await vault.addToken({ tokenPath: second.path, pin: '654321' });
+
+    vault.removeToken(second.serial);
+    assert.equal(vault.status().tokenCount, 1);
+    vault.lock();
+    await assert.rejects(() => vault.unlock({ pin: '654321', tokenPath: second.path }), /不匹配/);
+    await vault.unlock({ pin: '123456', tokenPath: first.path });
+    assert.throws(() => vault.removeToken(first.serial), /至少要保留一枚令牌/);
+  }));
+
+test('多令牌：v1 元数据（单令牌 token+wrappedDek）仍能读，读后可正常解锁', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const token = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: token.path, pin: '123456', library: SAMPLE });
+
+    // 手工降级成 v1 结构
+    const file = path.join(dataDir, 'vault.json');
+    const v2 = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    const rec = v2.tokens[0];
+    const v1 = { v: 1, token: { ...rec }, salt: v2.salt, wrappedDek: rec.wrappedDek, recovery: v2.recovery };
+    delete v1.token.wrappedDek;
+    fs.writeFileSync(file, JSON.stringify(v1));
+
+    const reopened = new Vault(dataDir);
+    await reopened.unlock({ pin: '123456', tokenPath: token.path });
+    assert.deepEqual(reopened.codec().decode(fs.readFileSync(path.join(dataDir, 'library.enc'))), SAMPLE);
+  }));
+
+test('drive.mountRoot：macOS 解析到 /Volumes/<盘名>，而不是根目录', () => {
+  const drive = require('../src/token/drive');
+  if (process.platform === 'darwin') {
+    assert.equal(drive.mountRoot('/Volumes/U盘/DocVault.key'), '/Volumes/U盘');
+    assert.equal(drive.mountRoot('/Volumes/NO NAME/sub/DocVault.key'), '/Volumes/NO NAME');
+    assert.equal(drive.mountRoot('/tmp/DocVault.key'), '/');
+  }
+  // Windows 盘符根
+  if (process.platform === 'win32') {
+    assert.equal(drive.mountRoot('D:\\DocVault.key'), 'D:\\');
+  }
+});

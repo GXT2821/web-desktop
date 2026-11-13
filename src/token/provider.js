@@ -35,23 +35,35 @@ function candidateRoots() {
   return roots;
 }
 
-// 根目录下直接找令牌文件；挂载点目录（/Volumes、/media）再下探一层
-function scanRoot(root) {
+// 一个目录里所有令牌文件（同一张盘可能放多枚：DocVault.key、DocVault-mac.key …）
+function scanDir(dir) {
   const found = [];
-  const direct = path.join(root, soft.TOKEN_FILENAME);
-  const info = soft.readTokenInfo(direct);
-  if (info) found.push(info);
-
   let entries = [];
   try {
-    entries = fs.readdirSync(root, { withFileTypes: true });
+    entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
     return found; // 盘符不存在 / 无权限：正常情况
   }
   for (const entry of entries) {
+    if (!entry.isFile() || !soft.TOKEN_PATTERN.test(entry.name)) continue;
+    const info = soft.readTokenInfo(path.join(dir, entry.name));
+    if (info) found.push(info);
+  }
+  return found;
+}
+
+// 根目录（U 盘根）直接找；挂载点目录（/Volumes、/media）再下探一层
+function scanRoot(root) {
+  const found = scanDir(root);
+  let entries = [];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return found;
+  }
+  for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const nested = soft.readTokenInfo(path.join(root, entry.name, soft.TOKEN_FILENAME));
-    if (nested) found.push(nested);
+    found.push(...scanDir(path.join(root, entry.name)));
   }
   return found;
 }

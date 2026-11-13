@@ -149,14 +149,18 @@ class Vault {
       enabled: this.state !== 'disabled',
       locked: this.state === 'locked',
       recovery: this.state === 'recovery',
-      serial: meta ? meta.token.serial : null,
-      tokenType: meta ? meta.token.type : null,
-      pinFree: meta ? meta.token.pinFree === true : false,
+      serial: meta ? meta.tokens[0].serial : null,
+      serials: meta ? meta.tokens.map((t) => t.serial) : [],
+      tokenCount: meta ? meta.tokens.length : 0,
+      tokenType: meta ? meta.tokens[0].type : null,
+      pinFree: meta ? meta.tokens[0].pinFree === true : false,
       createdAt: meta ? meta.createdAt : null,
       error,
     };
   }
 
+  // 读元数据并统一成 v2 结构：{ salt, tokens: [{...token, wrappedDek}], recovery }。
+  // v1 是单令牌（token + wrappedDek），读进来就地提升，写入时升到 v2。
   #meta() {
     let raw;
     try {
@@ -164,10 +168,30 @@ class Vault {
     } catch (err) {
       throw new Error(`保险库元数据读取失败：${err.message}`);
     }
-    if (!raw || raw.v !== 1 || !raw.token || !raw.salt || !raw.wrappedDek || !raw.recovery) {
+    if (!raw || !raw.salt || !raw.recovery) {
       throw new Error('保险库元数据无效（vault.json 被改动或损坏）');
     }
-    return raw;
+    let tokens;
+    if (Array.isArray(raw.tokens)) {
+      tokens = raw.tokens.filter((t) => t && t.serial && t.wrappedDek);
+    } else if (raw.token && raw.wrappedDek) {
+      tokens = [{ ...raw.token, wrappedDek: raw.wrappedDek }];
+    } else {
+      tokens = [];
+    }
+    if (!tokens.length) throw new Error('保险库元数据无效（没有可用的令牌记录）');
+    return { v: 2, salt: raw.salt, tokens, recovery: raw.recovery, createdAt: raw.createdAt || null };
+  }
+
+  // 写回 v2（所有令牌各自一份 wrappedDek；salt 共享，密钥派生里还混了序列号）
+  #writeMeta(meta) {
+    writeJsonAtomic(this.vaultFile, {
+      v: 2,
+      salt: meta.salt,
+      tokens: meta.tokens,
+      recovery: meta.recovery,
+      createdAt: meta.createdAt || Date.now(),
+    });
   }
 
   // ---------- 编解码（给 Store 当 codec 用） ----------
@@ -210,16 +234,17 @@ class Vault {
         maxmem: SCRYPT_MAXMEM,
       });
       const meta = {
-        v: 1,
-        token: {
-          type: session.type,
-          serial: session.serial,
-          pinFree: session.pinFree === true,
-          driveId: session.driveId || null,
-          path: tokenPath,
-        },
         salt: salt.toString('hex'),
-        wrappedDek: seal(kek, dek),
+        tokens: [
+          {
+            type: session.type,
+            serial: session.serial,
+            pinFree: session.pinFree === true,
+            driveId: session.driveId || null,
+            path: tokenPath,
+            wrappedDek: seal(kek, dek),
+          },
+        ],
         recovery: { kdf: { ...RECOVERY_KDF, salt: recSalt }, wrappedDek: seal(recKey, dek) },
         createdAt: Date.now(),
       };
@@ -230,7 +255,7 @@ class Vault {
       const enc = encryptBuffer(dek, library);
       fs.writeFileSync(this.encFile, enc, { mode: 0o600 });
       try {
-        writeJsonAtomic(this.vaultFile, meta);
+        this.#writeMeta(meta);
       } catch (err) {
         fs.rmSync(this.encFile, { force: true });
         throw err;
@@ -257,24 +282,52 @@ class Vault {
     if (this.state === 'recovery') throw new Error('请先完成新令牌的绑定');
     const meta = this.#meta();
 
-    // 指定路径优先；否则按序列号在挂载点里找"那枚"令牌
+    // 指定路径优先；否则在挂载点里找"任何一枚已绑定的令牌"（多系统各一枚）
     let info = null;
+    let record = null;
     if (tokenPath) {
       info = soft.readTokenInfo(tokenPath);
       if (!info) throw new Error('令牌文件无效');
-    } else {
-      info = provider.findBySerial(meta.token.serial);
+      record = meta.tokens.find((t) => t.serial === info.serial) || null;
+      if (!record) {
+        throw new Error('这枚令牌与保险库不匹配：它还没有绑定到这个库（已解锁时可用「绑定新令牌」添加）');
+      }
     }
-    if (!info) throw new Error('未检测到绑定的令牌，请插入对应的 U 盘');
-    if (info.serial !== meta.token.serial) throw new Error('这枚令牌与保险库不匹配（序列号不同）');
 
-    const session = await soft.openToken(info.path, pin);
+    // 没有指定令牌：在"在场的令牌"里挑一枚。
+    // 多系统共用一个 U 盘时，其他系统的令牌会在 openToken 的盘校验里被拦下
+    // （这一步发生在验 PIN 之前，不会扣尝试次数），可以安全跳过；
+    // 一旦出现 PIN 错误就停下——说明这枚就是本机的令牌，只是 PIN 不对。
+    const tryTokens = info
+      ? [{ info, record }]
+      : meta.tokens
+          .map((candidate) => ({ record: candidate, info: provider.findBySerial(candidate.serial) }))
+          .filter((entry) => entry.info);
+
+    if (!tryTokens.length) throw new Error('未检测到绑定的令牌，请插入对应的 U 盘');
+
+    let session = null;
+    let lastError = null;
+    for (const entry of tryTokens) {
+      try {
+        session = await soft.openToken(entry.info.path, pin);
+        info = entry.info;
+        record = entry.record;
+        break;
+      } catch (err) {
+        lastError = err;
+        // 与当前盘不匹配 → 换下一枚；PIN/已锁定这类错误直接抛给用户
+        if (/不匹配|编码不一致/.test(err.message)) continue;
+        throw err;
+      }
+    }
+    if (!session) throw lastError || new Error('未检测到可用的令牌');
     const dek = crypto.randomBytes(32);
     try {
       // 旧版保险库没有 driveId，用旧 info 派生；解锁成功后就地升级为 U 盘绑定
-      const metaDrive = meta.token.driveId || null;
+      const metaDrive = record.driveId || null;
       const kek = deriveKek(session.hmac(Buffer.from(meta.salt, 'hex')), session.serial, metaDrive);
-      const unwrapped = unseal(kek, meta.wrappedDek);
+      const unwrapped = unseal(kek, record.wrappedDek);
       kek.fill(0);
       unwrapped.copy(dek);
       unwrapped.fill(0);
@@ -283,7 +336,7 @@ class Vault {
       this.state = 'unlocked';
       this.boundSerial = session.serial;
       this.boundTokenPath = info.path;
-      this.#upgradeDriveBinding(meta, session, dek);
+      this.#upgradeDriveBinding(meta, record, session, dek);
       return { serial: session.serial };
     } catch (err) {
       dek.fill(0);
@@ -299,8 +352,8 @@ class Vault {
 
   // 旧版保险库迁移：补上 U 盘绑定并把 DEK 重新包装。
   // 只影响 wrappedDek 的包装方式，DEK 与数据文件不动；失败不影响本次解锁。
-  #upgradeDriveBinding(meta, session, dek) {
-    if (meta.token.driveId) return;
+  #upgradeDriveBinding(meta, record, session, dek) {
+    if (record.driveId) return;
     try {
       let driveId = session.driveId;
       if (!driveId) driveId = soft.bindDrive(this.boundTokenPath);
@@ -310,10 +363,10 @@ class Vault {
         session.serial,
         driveId
       );
-      meta.token.driveId = driveId;
-      meta.wrappedDek = seal(kek, dek);
+      record.driveId = driveId;
+      record.wrappedDek = seal(kek, dek);
       kek.fill(0);
-      writeJsonAtomic(this.vaultFile, meta);
+      this.#writeMeta(meta);
       console.log(`[vault] 已把令牌绑定到当前 U 盘（${driveId}）`);
     } catch (err) {
       console.error(`[vault] U 盘绑定迁移失败：${err.message}`);
@@ -360,9 +413,12 @@ class Vault {
     const dek = this.dek;
     if (!dek) throw new Error('数据密钥不在内存中');
     const session = await soft.openToken(tokenPath, pin);
-    const salt = crypto.randomBytes(32);
     let recoveryCode = null;
     try {
+      const old = this.#meta();
+      // 共享 salt 必须沿用：已有令牌的 wrappedDek 都是用它派生的，
+      // 轮换 salt 会让它们全部解不开（多令牌场景下等于把老令牌作废）。
+      const salt = Buffer.from(old.salt, 'hex');
       const kek = deriveKek(session.hmac(salt), session.serial, session.driveId);
       recoveryCode = generateRecoveryCode();
       const recSalt = crypto.randomBytes(16).toString('hex');
@@ -370,25 +426,26 @@ class Vault {
         ...RECOVERY_KDF,
         maxmem: SCRYPT_MAXMEM,
       });
-      const old = this.#meta();
-      const meta = {
-        v: 1,
-        token: {
-          type: session.type,
-          serial: session.serial,
-          pinFree: session.pinFree === true,
-          driveId: session.driveId || null,
-          path: tokenPath,
-        },
-        salt: salt.toString('hex'),
+      const record = {
+        type: session.type,
+        serial: session.serial,
+        pinFree: session.pinFree === true,
+        driveId: session.driveId || null,
+        path: tokenPath,
         wrappedDek: seal(kek, dek),
+      };
+      // 追加而不是替换：同一个保险库可以绑定多枚令牌（每条系统一枚）。
+      // 恢复码本身会作废（重新生成），旧令牌继续可用；要作废旧令牌用 removeToken。
+      const tokens = old.tokens.filter((t) => t.serial !== record.serial).concat(record);
+      const meta = {
+        salt: salt.toString('hex'),
+        tokens,
         recovery: { kdf: { ...RECOVERY_KDF, salt: recSalt }, wrappedDek: seal(recKey, dek) },
         createdAt: old.createdAt || Date.now(),
-        reboundAt: Date.now(),
       };
       kek.fill(0);
       recKey.fill(0);
-      writeJsonAtomic(this.vaultFile, meta);
+      this.#writeMeta(meta);
       this.state = 'unlocked';
       this.boundSerial = session.serial;
       this.boundTokenPath = tokenPath;
@@ -396,6 +453,50 @@ class Vault {
     } finally {
       session.close();
     }
+  }
+
+  // 已解锁时追加一枚令牌（典型用法：在另一套系统上建好令牌，绑定进同一个保险库）。
+  // 只追加 wrap 记录，DEK 与数据文件都不动，其他令牌继续可用。
+  async addToken({ tokenPath, pin }) {
+    if (this.state !== 'unlocked') throw new Error('请先解锁再绑定新令牌');
+    const dek = this.dek;
+    if (!dek) throw new Error('数据密钥不在内存中');
+    const meta = this.#meta();
+    const session = await soft.openToken(tokenPath, pin);
+    try {
+      if (meta.tokens.some((t) => t.serial === session.serial)) {
+        throw new Error('这枚令牌已经绑定过了');
+      }
+      const kek = deriveKek(session.hmac(Buffer.from(meta.salt, 'hex')), session.serial, session.driveId);
+      const wrappedDek = seal(kek, dek);
+      kek.fill(0);
+      meta.tokens.push({
+        type: session.type,
+        serial: session.serial,
+        pinFree: session.pinFree === true,
+        driveId: session.driveId || null,
+        path: tokenPath,
+        wrappedDek,
+      });
+      this.#writeMeta(meta);
+      console.log(`[vault] 已追加令牌 ${session.serial}（共 ${meta.tokens.length} 枚）`);
+      return { serial: session.serial, count: meta.tokens.length };
+    } finally {
+      session.close();
+    }
+  }
+
+  // 作废一枚令牌：删掉它的 wrap 记录，之后这枚令牌解不开保险库。
+  // 至少要留一枚——彻底停用请走「停用 U盾保护」。
+  removeToken(serial) {
+    if (this.state !== 'unlocked') throw new Error('请先解锁再解绑令牌');
+    const meta = this.#meta();
+    const next = meta.tokens.filter((t) => t.serial !== serial);
+    if (next.length === meta.tokens.length) throw new Error('没有这枚令牌');
+    if (!next.length) throw new Error('至少要保留一枚令牌');
+    meta.tokens = next;
+    this.#writeMeta(meta);
+    return { count: next.length };
   }
 
   // ---------- 锁定 / 停用 ----------
@@ -426,9 +527,12 @@ class Vault {
     if (!this.isEnabled()) return null;
     try {
       const meta = this.#meta();
-      if (meta.token.path && fs.existsSync(meta.token.path)) return meta.token.path;
-      const info = provider.findBySerial(meta.token.serial);
-      return info ? info.path : meta.token.path || null;
+      for (const record of meta.tokens) {
+        if (record.path && fs.existsSync(record.path)) return record.path;
+        const found = provider.findBySerial(record.serial);
+        if (found) return found.path;
+      }
+      return meta.tokens[0].path || null;
     } catch {
       return null;
     }
@@ -437,10 +541,40 @@ class Vault {
   // 拔盾检测：绑定的那枚令牌还在不在。
   // 快路径：记住令牌路径（vault.json 里的 token.path），一次 existsSync（约 0.07ms）；
   // 只有路径失效（换盘符/文件被移动）才退回全盘扫描。
+  // 任一枚已绑定的令牌在场即算"盾插着"（多枚令牌时，哪个系统的在手边用哪个）
   boundTokenPresent() {
     if (this.boundTokenPath && fs.existsSync(this.boundTokenPath)) return true;
-    if (!this.boundSerial) return false;
-    return provider.findBySerial(this.boundSerial) !== null;
+    let meta;
+    try {
+      meta = this.#meta();
+    } catch {
+      return false;
+    }
+    return meta.tokens.some((t) => provider.findBySerial(t.serial) !== null);
+  }
+
+  // 当前在场的所有令牌（可能同时插着多枚，比如 U 盘上放着三套系统的令牌）
+  #presentTokens(meta) {
+    const found = [];
+    const seen = new Set();
+    const consider = (info) => {
+      if (!info || seen.has(info.serial)) return;
+      if (!meta.tokens.some((t) => t.serial === info.serial)) return;
+      seen.add(info.serial);
+      found.push(info);
+    };
+    if (this.boundTokenPath) consider(soft.readTokenInfo(this.boundTokenPath));
+    for (const record of meta.tokens) {
+      if (record.path) consider(soft.readTokenInfo(record.path));
+      consider(provider.findBySerial(record.serial));
+    }
+    return found;
+  }
+
+  // 优先挑"在场的免 PIN 令牌"，否则第一枚在场的
+  #presentToken(meta) {
+    const present = this.#presentTokens(meta);
+    return present.find((info) => info.pinFree) || present[0] || null;
   }
 
   // 轻量状态：令牌在不在、是不是免 PIN、有没有被锁。供锁定页高频轮询（不扫全盘）。
@@ -453,14 +587,13 @@ class Vault {
     } catch {
       return empty;
     }
-    let info = null;
-    if (meta.token.path) info = soft.readTokenInfo(meta.token.path);
-    if (!info || info.serial !== meta.token.serial) info = provider.findBySerial(meta.token.serial);
+    const info = this.#presentToken(meta);
     return {
       present: Boolean(info),
       pinFree: Boolean(info && info.pinFree),
       locked: Boolean(info && info.locked),
-      serial: meta.token.serial,
+      serial: info ? info.serial : meta.tokens[0].serial,
+      tokenCount: meta.tokens.length,
     };
   }
 
@@ -474,10 +607,9 @@ class Vault {
     } catch {
       return null;
     }
-    let info = null;
-    if (meta.token.path) info = soft.readTokenInfo(meta.token.path);
-    if (!info || info.serial !== meta.token.serial) info = provider.findBySerial(meta.token.serial);
-    return info && info.pinFree ? info : null;
+    // 多枚令牌同时在场时，优先用免 PIN 的那枚自动解锁
+    const present = this.#presentTokens(meta);
+    return present.find((info) => info.pinFree) || null;
   }
 }
 

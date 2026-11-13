@@ -23,6 +23,20 @@ const drive = require('./drive');
 const scrypt = promisify(crypto.scrypt);
 
 const TOKEN_FILENAME = 'DocVault.key';
+// 同一个目录里允许放多枚令牌（每套系统一枚，或主令牌 + 备用令牌），
+// 发现层按这个模式扫描：DocVault.key / DocVault-mac.key / DocVault-win-2.key …
+const TOKEN_PATTERN = /^DocVault[^/\\]*\.key$/i;
+
+// 选一个不冲突的令牌文件名：默认 DocVault.key，已存在就按平台加后缀。
+// 注意：force 覆盖仍然只针对 DocVault.key（旧行为不变）。
+function tokenFileName(dir) {
+  if (!fs.existsSync(path.join(dir, TOKEN_FILENAME))) return TOKEN_FILENAME;
+  const tag = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
+  let name = `DocVault-${tag}.key`;
+  let index = 2;
+  while (fs.existsSync(path.join(dir, name))) name = `DocVault-${tag}-${index++}.key`;
+  return name;
+}
 const TOKEN_TYPE = 'docvault-soft-token';
 const MAX_ATTEMPTS = 8;
 const PIN_MIN = 4;
@@ -88,10 +102,14 @@ async function createToken(dir, pin, options = {}) {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
     throw new Error('令牌目录不存在，请先把 U 盘插好');
   }
-  const file = path.join(dir, TOKEN_FILENAME);
-  if (fs.existsSync(file) && !force) {
+  const target = path.join(dir, TOKEN_FILENAME);
+  const allowMultiple = options.allowMultiple === true;
+  if (fs.existsSync(target) && !force && !allowMultiple) {
     throw new Error('这个位置已经有一枚令牌（DocVault.key）。继续会覆盖它，请确认后再试');
   }
+  // allowMultiple：同一个目录里再放一枚（按平台命名，例如 DocVault-mac.key），
+  // 用于"每套系统一枚令牌"共用同一个 U 盘。force 覆盖时仍然写 DocVault.key。
+  const file = force ? target : path.join(dir, tokenFileName(dir));
   // 绑定到"这张 U 盘"的卷序列号；识别不到时退化为不绑定（保持可用）
   const driveInfo = Object.hasOwn(options, 'drive') ? options.drive : drive.identify(file);
 
@@ -250,6 +268,8 @@ function bindDrive(file) {
 
 module.exports = {
   TOKEN_FILENAME,
+  TOKEN_PATTERN,
+  tokenFileName,
   TOKEN_TYPE,
   MAX_ATTEMPTS,
   createToken,
