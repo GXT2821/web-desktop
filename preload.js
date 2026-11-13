@@ -68,6 +68,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('downloads:failed', (_event, payload) => callback(payload));
   },
   // 主进程转发：焦点在网页里时按下的应用级快捷键
+  onMenuAction: (callback) => {
+    ipcRenderer.on('menu-action', (_event, id) => callback(id));
+  },
   onShortcut: (callback) => {
     ipcRenderer.on('shortcut', (_event, payload) => callback(payload && payload.key));
   },

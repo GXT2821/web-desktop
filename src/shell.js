@@ -720,6 +720,23 @@
     activate(libraryTab);
     bindToolbar();
     document.addEventListener('keydown', onModKey);
+    // 桌面端菜单在系统菜单栏里（macOS 屏幕顶部 / Windows 窗口顶部），窗口内那条只给 Android 用
+    document.body.classList.add('has-native-menu');
+    window.api.onMenuAction((id) => {
+      if (id === 'reveal-data') {
+        window.api.revealDataFile().catch((err) => Library.toast(err.message, true));
+      } else if (id === 'reset') {
+        Library.resetDialog();
+      } else if (id === 'vault-enroll') {
+        Library.vaultEnrollWizard();
+      } else if (id === 'vault-tokens') {
+        Library.vaultTokensDialog();
+      } else if (id === 'vault-disable') {
+        Library.vaultDisableDialog();
+      } else if (id === 'about') {
+        Library.aboutDialog();
+      }
+    });
     dom.tabOverflowBtn.addEventListener('click', () => (overflowMenuEl ? closeOverflowMenu() : openOverflowMenu()));
     window.addEventListener('resize', scheduleRelayout);
     // 标签区宽度变化的兜底来源（按钮显隐、动作区变化等都可能改变可用宽度）

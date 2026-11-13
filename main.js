@@ -692,6 +692,7 @@ function registerVaultIpc() {
   // 停用保护：PIN 校验 → 还原明文 → 删除保险库文件
   handleVault('vault:disable', async ({ pin }) => {
     const plain = await vault.disable({ pin });
+    setupMenu();
     fs.writeFileSync(path.join(DATA_DIR, 'library.json'), `${JSON.stringify(plain, null, 2)}\n`, {
       encoding: 'utf-8',
       mode: 0o600,
@@ -774,32 +775,146 @@ function hardenSession(getWindow) {
 
 // ---------- 菜单 ----------
 
-// macOS 的复制/粘贴/退出依赖菜单 role，直接清空菜单会让 Cmd+C/V/Q 失效；
-// 因此 mac 上保留最小菜单（应用 + 编辑 + 视图），其他平台保持无菜单栏。
+// 菜单动作统一转给渲染层处理（对话框都在渲染层）；锁定直接在主进程做。
+function sendMenuAction(id) {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  if (win) win.webContents.send('menu-action', id);
+}
+
+// macOS 的复制/粘贴/退出依赖菜单 role；三端都用原生菜单，
+// 这样「文件 / U盾 / 帮助」和「视图」并排出现在系统菜单栏里，符合常规软件的位置。
+// 注意：状态变化（启用/停用 U盾）后要重新调用本函数重建菜单。
 function setupMenu() {
-  if (process.platform !== 'darwin') {
-    Menu.setApplicationMenu(null);
-    return;
+  const isMac = process.platform === 'darwin';
+  let vaultEnabled = false;
+  let tokenCount = 0;
+  try {
+    const status = vault.status();
+    vaultEnabled = status.enabled === true;
+    tokenCount = status.tokenCount || 0;
+  } catch {
+    /* 元数据异常时按未启用处理 */
   }
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      { role: 'appMenu' },
-      { role: 'editMenu' },
-      {
-        label: '视图',
-        submenu: [
-          { role: 'toggleDevTools', label: '开发者工具' },
-          { type: 'separator' },
-          { role: 'resetZoom', label: '实际大小' },
-          { role: 'zoomIn', label: '放大' },
-          { role: 'zoomOut', label: '缩小' },
-        ],
-      },
-    ])
-  );
+
+  const template = [
+    ...(isMac
+      ? [
+          {
+            label: '文档库',
+            submenu: [
+              { label: '关于文档库', role: 'about' },
+              { type: 'separator' },
+              { label: '服务', role: 'services' },
+              { type: 'separator' },
+              { label: '隐藏文档库', role: 'hide' },
+              { label: '隐藏其他', role: 'hideOthers' },
+              { label: '显示全部', role: 'unhide' },
+              { type: 'separator' },
+              { label: '退出文档库', role: 'quit' },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: '文件',
+      submenu: [
+        {
+          label: '打开数据文件位置',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => sendMenuAction('reveal-data'),
+        },
+        { type: 'separator' },
+        { label: '重置…', click: () => sendMenuAction('reset') },
+        ...(isMac ? [] : [{ type: 'separator' }, { role: 'quit', label: '退出' }]),
+      ],
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { role: 'undo', label: '撤销' },
+        { role: 'redo', label: '重做' },
+        { type: 'separator' },
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { role: 'delete', label: '删除' },
+        { type: 'separator' },
+        { role: 'selectAll', label: '全选' },
+      ],
+    },
+    {
+      label: '视图',
+      submenu: [
+        { role: 'toggleDevTools', label: '开发者工具' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: '实际大小' },
+        { role: 'zoomIn', label: '放大' },
+        { role: 'zoomOut', label: '缩小' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: '全屏' },
+      ],
+    },
+    {
+      label: 'U盾',
+      submenu: vaultEnabled
+        ? [
+            {
+              label: '锁定',
+              accelerator: 'CmdOrCtrl+Shift+L',
+              click: () => doLock('菜单：立即锁定'),
+            },
+            {
+              label: tokenCount > 1 ? `令牌管理（${tokenCount} 枚）…` : '令牌管理…',
+              click: () => sendMenuAction('vault-tokens'),
+            },
+            { type: 'separator' },
+            { label: '停用 U盾保护…', click: () => sendMenuAction('vault-disable') },
+          ]
+        : [{ label: '启用 U盾保护…', click: () => sendMenuAction('vault-enroll') }],
+    },
+    {
+      label: '窗口',
+      submenu: [
+        { role: 'minimize', label: '最小化' },
+        { role: 'zoom', label: '缩放' },
+        ...(isMac
+          ? [
+              { type: 'separator' },
+              { role: 'front', label: '前置全部窗口' },
+            ]
+          : [{ role: 'close', label: '关闭窗口' }]),
+      ],
+    },
+    {
+      role: 'help',
+      label: '帮助',
+      submenu: [
+        { label: '关于文档库…', click: () => sendMenuAction('about') },
+        { label: '打开数据文件位置', click: () => sendMenuAction('reveal-data') },
+      ],
+    },
+  ];
+
+  const built = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(built);
+  if (process.env.DOCVAULT_MENU_DUMP === '1') {
+    const dump = (items, depth) =>
+      items
+        .map((item) => {
+          const lines = [`${'  '.repeat(depth)}- ${item.label || item.role || item.type}${item.accelerator ? ` (${item.accelerator})` : ''}`];
+          if (item.submenu) lines.push(dump(item.submenu.items, depth + 1));
+          return lines.join('\n');
+        })
+        .join('\n');
+    console.log(`[menu]\n${dump(Menu.getApplicationMenu().items, 0)}`);
+  }
 }
 
 // ---------- 生命周期 ----------
+
+// 开发模式下应用名默认取 package.json 的 name（doc-vault），菜单里显示成英文；
+// 统一成与打包版一致的「文档库」
+app.setName('文档库');
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {

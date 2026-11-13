@@ -1875,3 +1875,9 @@ svg {
   color: #c0392b;
   margin: 6px 0 0;
 }
+
+
+/* 桌面端菜单在系统菜单栏里，窗口内这条只在 Android（无原生菜单）显示 */
+.has-native-menu .menubar {
+  display: none;
+}

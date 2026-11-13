@@ -1736,6 +1736,10 @@
     addDocDialog,
     newFolderDialog,
     vaultTokensDialog,
+    vaultEnrollWizard,
+    vaultDisableDialog,
+    resetDialog,
+    aboutDialog,
     focusSearch: () => {
       dom.search.focus();
       dom.search.select();
