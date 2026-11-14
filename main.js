@@ -12,6 +12,7 @@ const { Store } = require('./src/store');
 const { Downloads } = require('./src/downloads');
 const { Vault } = require('./src/vault');
 const { resetDataDir, listTargets } = require('./src/reset');
+const { createSessionStore } = require('./src/session');
 const softToken = require('./src/token/soft-token');
 const tokenProvider = require('./src/token/provider');
 
@@ -46,9 +47,11 @@ try {
 const vault = new Vault(DATA_DIR);
 let store = null;
 let mainWindow = null;
-// 打开中的网页标签（标题/链接/活动项）。只存内存：锁定后窗口销毁，
-// 解锁重建时用它恢复标签；不落盘，避免锁定时把文档链接明文写到磁盘。
+// 打开中的网页标签（标题/链接/活动项）。
+// 内存里留一份用于"锁定→解锁"的快速恢复；同时落盘，关闭应用再打开也能恢复。
+// 启用 U盾时以加密文件保存（session.enc），未启用时是明文 session.json。
 let sessionTabs = null;
+let sessionStore = null;
 let lockWindow = null;
 let lastActivity = Date.now();
 const IDLE_MINUTES = Math.max(1, Number(process.env.DOCVAULT_IDLE_MINUTES) || 10);
@@ -393,29 +396,35 @@ function exportFilename() {
 }
 
 function registerSessionIpc() {
+  sessionStore = createSessionStore({
+    dataDir: DATA_DIR,
+    isVaultEnabled: () => vault.isEnabled(),
+    isVaultLocked: () => vault.isLocked(),
+    codec: () => vault.codec(),
+  });
+
   ipcMain.on('session:save', (event, state) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
-    if (!state || !Array.isArray(state.tabs)) return;
-    sessionTabs = {
-      tabs: state.tabs
-        .filter((t) => t && typeof t.url === 'string')
-        .slice(0, 50)
-        .map((t) => ({
-          url: String(t.url).slice(0, 2048),
-          title: String(t.title || '').slice(0, 200),
-          docId: t.docId ? String(t.docId).slice(0, 64) : null,
-        })),
-      activeIndex: Number.isInteger(state.activeIndex) ? state.activeIndex : 0,
-    };
+    const normalized = require('./src/session').normalize(state);
+    if (!normalized) return;
+    sessionTabs = normalized; // 锁定时窗口会销毁，内存里这份用于快速恢复
+    try {
+      sessionStore.save(normalized); // 落盘：关闭应用再打开也能恢复
+    } catch {
+      /* 落盘失败不影响使用 */
+    }
   });
+
   // 与其它通道保持同样的 { ok, data } 返回形状（preload 的 call() 依赖它）。
-  // 会话里是打开着的文档链接，同样只给主窗口：之前漏了 sender 校验，
-  // 与 session:save / 数据通道的门禁不一致
+  // 会话里是打开着的文档链接，只给主窗口。没有内存副本时（刚启动）从磁盘读：
+  // 启用 U盾时读加密文件，锁定时读不到（返回 null），解锁后再恢复。
   ipcMain.handle('session:get', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { ok: false, error: '当前窗口无权执行此操作' };
     }
-    return { ok: true, data: sessionTabs };
+    let data = sessionTabs;
+    if (!data && sessionStore) data = sessionStore.load();
+    return { ok: true, data: data || null };
   });
 }
 

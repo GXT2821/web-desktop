@@ -23,6 +23,9 @@ const APP_FILES = [
   'downloads.json',
   // downloads.js 的原子写同样会留 .tmp：漏了它，重置后残留文件会被下次启动读回
   'downloads.json.tmp',
+  // 打开中的标签页（明文 / 加密两种形态）
+  'session.json',
+  'session.enc',
 ];
 
 // 列出本次会删除的文件（含 library.*.corrupt-* 留档）
