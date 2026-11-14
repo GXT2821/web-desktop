@@ -1,7 +1,7 @@
 {
   "name": "docvault-mobile",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "文档库 Android 端（Tauri 2）",
   "scripts": {
     "prepare": "node prepare.js",

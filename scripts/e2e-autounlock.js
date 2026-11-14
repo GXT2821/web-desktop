@@ -4,9 +4,9 @@
  *
  * 场景与真实使用一致：
  *   1. U 盘里放一枚免 PIN 令牌 → 启用保护（无需输入 PIN）；
- *   2. 关掉应用再打开（令牌插着）→ 应当直接进文档库，不出现锁定页；
+ *   2. 关掉应用再打开（令牌插着）→ 停在锁定页的"读取完成"界面，点「确定」才进文档库；
  *   3. 拔掉令牌 → 自动上锁，出现锁定页；
- *   4. 插回令牌 → 自动解锁，回到文档库。
+ *   4. 插回令牌 → 自动读取密钥，点「确定」后回到文档库。
  *
  * 全部使用 .tmp-e2e-auto/ 临时目录，不碰真实数据。
  */
@@ -18,7 +18,9 @@ const { spawn } = require('child_process');
 const ROOT = path.join(__dirname, '..', '.tmp-e2e-auto');
 const DATA = path.join(ROOT, 'data');
 const TOKEN_DIR = path.join(ROOT, 'token');
-const TOKEN_FILE = path.join(TOKEN_DIR, 'DocVault.key');
+// 令牌现在按系统分目录存放（<目录>/mac/DocVault.key），不能再硬编码根目录路径，
+// 否则"拔盾"步骤 rename 会 ENOENT。实际路径以 createToken 的返回值为准。
+let TOKEN_FILE = null;
 const PORT = 9227;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -93,6 +95,12 @@ const CLICK = (sel, text) => `(() => {
   n.click(); return true;
 })()`;
 
+// 侧栏底部的文字链接已改成品牌行右侧的「⋯」菜单（桌面端另有系统菜单栏），
+// 这里通过窗口内那个入口驱动界面，文案不变。
+const OPEN_MORE_MENU = `document.getElementById('moreBtn').click()`;
+const INIT_RENDERED = `document.querySelector('.side-foot').textContent.includes('条记录')`;
+const VAULT_ENABLED = `window.api.getInfo().then((info) => Boolean(info.vault && info.vault.enabled))`;
+
 function launch() {
   const electronBin = require('electron');
   const env = { ...process.env, DOCVAULT_DATA_DIR: DATA, DOCVAULT_TOKEN_DIR: TOKEN_DIR };
@@ -121,18 +129,19 @@ async function main() {
   fs.rmSync(TOKEN_DIR, { recursive: true, force: true });
   fs.mkdirSync(TOKEN_DIR, { recursive: true });
   const soft = require('../src/token/soft-token');
-  await soft.createToken(TOKEN_DIR, '', { pinFree: true });
+  TOKEN_FILE = (await soft.createToken(TOKEN_DIR, '', { pinFree: true })).path;
   log('已准备免 PIN 令牌');
 
   // ---------- 首次启动：启用保护 ----------
   launch();
   await waitFor(async () => { try { await targets(); return true; } catch { return null; } }, 30000);
   let shell = await connect('shell.html');
-  await waitFor(() => shell.evaluate(`[...document.querySelectorAll('.side-foot button')].some(b => b.textContent.includes('启用 U盾保护'))`));
+  await waitFor(() => shell.evaluate(INIT_RENDERED));
   await shell.evaluate(`window.api.addDoc({ url: 'https://example.com/auto-unlock', title: '自动解锁验证' })`);
   log('文档已添加');
 
-  await shell.evaluate(CLICK('.side-foot button', '启用 U盾保护'));
+  await shell.evaluate(OPEN_MORE_MENU);
+  await shell.evaluate(CLICK('.menubar-entry', '启用 U盾保护'));
   await waitFor(() => shell.evaluate(`document.querySelectorAll('.token-item').length > 0`));
   await shell.evaluate(`document.querySelector('.token-item').click()`);
   const hasPinField = await shell.evaluate(`Boolean(document.querySelector('.modal-form input[type=password]:not([disabled])'))`);
@@ -146,7 +155,7 @@ async function main() {
     return true;
   })()`);
   await shell.evaluate(CLICK('.modal button', '完成'));
-  await waitFor(() => shell.evaluate(`document.querySelector('.side-foot').textContent.includes('U盾保护中')`));
+  await waitFor(() => shell.evaluate(VAULT_ENABLED));
   log('保护已启用（免 PIN），无需输入 PIN');
 
   if (!fs.existsSync(path.join(DATA, 'library.enc'))) throw new Error('library.enc 不存在');

@@ -139,7 +139,20 @@
   // 主进程报"密钥已读"：若已进入校验阶段就收尾，否则等读取动画走完再收尾
   function onKeyReady() {
     autoReady = true;
-    if (autoPhase === 'verify') maybeFinishVerify();
+    if (autoPhase === 'verify') {
+      maybeFinishVerify();
+      return;
+    }
+    // 8 秒超时后密钥才读出来（大库/慢机器）：回到校验阶段补一次收尾，
+    // 否则「确定进入」按钮永远不会出现，明明已经解锁却只能重插令牌。
+    if (autoPhase === 'error') {
+      autoPhase = 'verify';
+      verifyStartAt = Date.now() - 300;
+      dom.autoHint.className = 'auto-hint';
+      dom.autoHint.textContent = '正在完成校验…';
+      dom.readProgress.classList.add('run');
+      maybeFinishVerify();
+    }
   }
 
   // 校验完成 → 出现「确定」；密钥没就绪就继续转，最多等 8 秒再提示失败
@@ -184,7 +197,7 @@
     dom.autoHint.textContent = message || '读取失败，请重新插入令牌或使用恢复码。';
   }
 
-  // ---------- 轮询：令牌在不在（500ms，只读元数据，不扫全盘） ----------
+  // ---------- 轮询：令牌在不在（400ms，只读元数据，不扫全盘） ----------
   async function poll() {
     if (mode !== 'unlock') return;
     try {

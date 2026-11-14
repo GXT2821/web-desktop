@@ -113,8 +113,14 @@
       tabEl.title = event.url;
       if (activeTab === item) updateToolbar();
     };
-    webview.addEventListener('did-navigate', syncUrl);
-    webview.addEventListener('did-navigate-in-page', syncUrl);
+    webview.addEventListener('did-navigate', (event) => {
+      syncUrl(event);
+      saveSession(); // 页内跳转后锁定，恢复时要回到跳转后的地址
+    });
+    webview.addEventListener('did-navigate-in-page', (event) => {
+      syncUrl(event);
+      saveSession();
+    });
 
     webview.addEventListener('page-title-updated', (event) => {
       const pageTitle = (event.title || '').trim();
@@ -423,7 +429,9 @@
       const list = tabs.filter((t) => t.kind === 'web');
       window.api.saveSession({
         tabs: list.map((t) => ({ url: t.currentUrl || t.url, title: t.title, docId: t.docId })),
-        activeIndex: Math.max(0, list.indexOf(activeTab)),
+        // 当前停在「文档库」标签时 indexOf 为 -1：原样上报，恢复时才能回到列表页。
+        // 之前 Math.max(0, …) 把它抹成 0，锁定前明明看着列表，恢复后却跳进第一个网页
+        activeIndex: list.indexOf(activeTab),
       });
     } catch {
       /* 忽略：状态同步失败不影响使用 */
@@ -436,6 +444,8 @@
     try {
       saved = await window.api.getSession();
     } catch {
+      // 读不到会话也不能把 sessionReady 永远锁在 false：之后开的标签就再也不会被保存
+      sessionReady = true;
       return;
     }
     if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) {
@@ -447,9 +457,18 @@
       if (!tab || !tab.url) continue;
       restored.push(createWebTab({ url: tab.url, title: tab.title || hostOf(tab.url), docId: tab.docId || null }));
     }
-    if (!restored.length) return;
-    const index = Math.min(Math.max(saved.activeIndex || 0, 0), restored.length - 1);
-    activate(restored[index]);
+    if (!restored.length) {
+      // 存档里全是无效条目：也要放行后续保存，否则 sessionReady 永远为 false，
+      // 之后开的标签在锁定/重建窗口时就再也不会有会话可恢复。
+      sessionReady = true;
+      return;
+    }
+    // -1 = 锁定前停在「文档库」列表页：恢复标签但保持列表页激活
+    if (saved.activeIndex === -1) activate(libraryTab);
+    else {
+      const index = Math.min(Math.max(saved.activeIndex || 0, 0), restored.length - 1);
+      activate(restored[index]);
+    }
     sessionReady = true;
     Library.toast(`已恢复 ${restored.length} 个标签页`);
   }

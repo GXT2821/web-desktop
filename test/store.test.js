@@ -123,6 +123,29 @@ test('updateDoc：不同目录的同链接不冲突', () => {
   });
 });
 
+test('updateDoc：同时改文件夹时按目标目录判重（避免同目录出现两条同链接）', () =>
+  withStore(({ store }) => {
+    const f1 = store.addFolder('A', null);
+    const f2 = store.addFolder('B', null);
+    const a = store.addDoc({ url: 'https://x.example.com/1', title: 'A 里的', folderId: f1.id });
+    store.addDoc({ url: 'https://x.example.com/1', title: 'B 里的', folderId: f2.id });
+
+    // 只移文件夹：目标目录已有同链接，必须拒绝
+    assert.throws(() => store.updateDoc(a.id, { folderId: f2.id }), /该链接已被同目录/);
+    // 改链接 + 移文件夹：按目标目录查，同样拒绝
+    assert.throws(
+      () => store.updateDoc(a.id, { folderId: f2.id, url: 'https://x.example.com/1/' }),
+      /该链接已被同目录/
+    );
+    // 失败不能改一半
+    assert.equal(store.data.docs.find((d) => d.id === a.id).folderId, f1.id);
+
+    // 目标目录没有同链接时允许移动
+    const c = store.addDoc({ url: 'https://y.example.com/2', title: 'C', folderId: f1.id });
+    store.updateDoc(c.id, { folderId: f2.id });
+    assert.equal(store.data.docs.find((d) => d.id === c.id).folderId, f2.id);
+  }));
+
 // ---------- URL 归一化与协议白名单 ----------
 
 test('normalizeUrl：补全协议、规范化、保留路径与查询', () => {
@@ -448,6 +471,69 @@ test('加载时收敛：丢弃非法链接、修复重复 id、孤儿文件夹�
     assert.equal(byId.f3.parentId, null, '孤儿应挂根');
     assert.equal(byId.f4, undefined, '无名文件夹应被丢弃');
   }));
+
+test('加载时收敛：文件夹多节点环（A→B→A）被解开，整棵子树不再"消失"', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docvault-cycle-'));
+  const file = path.join(dir, 'library.json');
+  try {
+    const raw = {
+      version: 1,
+      folders: [
+        { id: 'f1', name: '环A', parentId: 'f2' },
+        { id: 'f2', name: '环B', parentId: 'f1' },
+        { id: 'f3', name: '挂在环上', parentId: 'f1' },
+        { id: 'f4', name: '正常', parentId: null },
+      ],
+      docs: [{ id: 'd1', url: 'https://example.com/a', folderId: 'f3' }],
+    };
+    fs.writeFileSync(file, JSON.stringify(raw), 'utf-8');
+    const store = new Store(file);
+    store.load();
+    const folders = store.data.folders;
+    const byId = new Map(folders.map((f) => [f.id, f]));
+    // 每个文件夹沿父链向上走都必须能到达根（null），且途中不重复
+    for (const folder of folders) {
+      const seen = new Set();
+      let cursor = folder;
+      while (cursor) {
+        assert.ok(!seen.has(cursor.id), `${folder.id} 的父链仍有环`);
+        seen.add(cursor.id);
+        cursor = cursor.parentId ? byId.get(cursor.parentId) : null;
+      }
+    }
+    // 只切断环成员，挂在环上的 f3 仍留在 f1 下
+    assert.equal(byId.get('f3').parentId, 'f1');
+    assert.equal(store.data.docs[0].folderId, 'f3');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('加载时收敛：重复的文件夹 id 会被重新生成（否则删除/移动会作用到多个目录）', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docvault-folders-'));
+  const file = path.join(dir, 'library.json');
+  try {
+    const raw = {
+      version: 1,
+      folders: [
+        { id: 'dup', name: '第一个', parentId: null },
+        { id: 'dup', name: '第二个', parentId: null },
+        { id: 'child', name: '子目录', parentId: 'dup' },
+      ],
+      docs: [],
+    };
+    fs.writeFileSync(file, JSON.stringify(raw), 'utf-8');
+    const store = new Store(file);
+    store.load();
+    const ids = store.data.folders.map((f) => f.id);
+    assert.equal(new Set(ids).size, ids.length, '文件夹 id 必须唯一');
+    assert.equal(store.data.folders[0].id, 'dup');
+    assert.notEqual(store.data.folders[1].id, 'dup');
+    assert.equal(store.data.folders.find((f) => f.id === 'child').parentId, 'dup');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('原型污染：patch 与 JSON 里的 __proto__ 都不会污染 Object.prototype', () =>
   withStore(({ file, store }) => {

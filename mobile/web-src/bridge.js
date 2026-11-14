@@ -62,6 +62,16 @@
         const data = parse(raw);
         if (data) {
           store.data = data;
+          // 主副本坏了、靠备份救回时，立刻把主副本修好。
+          // 否则下一次 save() 会把"坏的主副本"滚进备份位，把好备份覆盖掉，
+          // 两份就都坏了（桌面端 Store.load 会先留档坏文件再 save，没有这个问题）
+          if (raw !== primary) {
+            try {
+              localStorage.setItem(KEY, JSON.stringify(data));
+            } catch {
+              /* 修不了也不影响本次使用 */
+            }
+          }
           return;
         }
       } catch {
@@ -166,11 +176,17 @@
     const urlOf = (d) => `${core.urlKey(d.url)}|${d.folderId || ''}`;
     const docUrls = new Set(store.data.docs.map(urlOf));
 
+    // 文件里的文件夹顺序不保证父级在前（手工编辑/别的工具导出时很容易倒过来），
+    // 所以先把"库里已有 + 本次要导入"的 id 全算出来，再逐个挂父级，
+    // 否则子文件夹先出现时会因为父级"暂时还不存在"被错误地挂到根目录。
+    const knownFolderIds = new Set([...folderIds, ...incoming.folders.map((f) => f.id)]);
+
     let addedFolders = 0;
     for (const folder of incoming.folders) {
       if (folderIds.has(folder.id)) continue;
       // 父文件夹没跟着进来时挂到根目录
-      const parentId = folder.parentId && folderIds.has(folder.parentId) ? folder.parentId : null;
+      const parentId =
+        folder.parentId && knownFolderIds.has(folder.parentId) ? folder.parentId : null;
       store.data.folders.push({ ...folder, parentId });
       folderIds.add(folder.id);
       addedFolders += 1;
@@ -256,7 +272,7 @@
       throw new Error('Android 版没有数据文件；要备份请在电脑上用「导出」');
     },
 
-    // Android 端扩展（桌面端没有下载管理，这几个只看不用）
+    // Android 端扩展：导入入口只在 Android 有（桌面端用「导出」产出同一格式）
     importLibrary: async (text, mode) => importText(text, mode),
   };
 

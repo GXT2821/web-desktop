@@ -145,15 +145,20 @@ class Vault {
         error = err.message; // 元数据损坏也要能报告状态，而不是把锁定页打崩
       }
     }
+    // 多令牌时，界面关心的是"当前解锁用的这枚"是不是免 PIN（停用对话框据此决定
+    // 要不要收 PIN），所以优先取 boundSerial 对应的记录，退回第一枚。
+    const current = meta
+      ? meta.tokens.find((t) => t.serial === this.boundSerial) || meta.tokens[0]
+      : null;
     return {
       enabled: this.state !== 'disabled',
       locked: this.state === 'locked',
       recovery: this.state === 'recovery',
-      serial: meta ? meta.tokens[0].serial : null,
+      serial: current ? current.serial : null,
       serials: meta ? meta.tokens.map((t) => t.serial) : [],
       tokenCount: meta ? meta.tokens.length : 0,
-      tokenType: meta ? meta.tokens[0].type : null,
-      pinFree: meta ? meta.tokens[0].pinFree === true : false,
+      tokenType: current ? current.type : null,
+      pinFree: current ? current.pinFree === true : false,
       createdAt: meta ? meta.createdAt : null,
       error,
     };
@@ -511,6 +516,12 @@ class Vault {
     if (!next.length) throw new Error('至少要保留一枚令牌');
     meta.tokens = next;
     this.#writeMeta(meta);
+    // 解绑的正是当前这把钥匙：把"在场令牌"的记忆切到剩下的一枚。
+    // 否则 boundTokenPresent() 的快路径仍认着被解绑的文件，拔掉它也不会上锁。
+    if (serial === this.boundSerial) {
+      this.boundSerial = next[0].serial;
+      this.boundTokenPath = next[0].path || null;
+    }
     return { count: next.length };
   }
 
@@ -523,17 +534,43 @@ class Vault {
     this.state = this.isEnabled() ? 'locked' : 'disabled';
   }
 
-  // 停用保护：校验 PIN → 解出明文返回给调用方落盘 → 删除保险库文件
-  async disable({ pin }) {
+  // 停用保护：校验 PIN → 解出明文 →（可选）先落盘明文 → 再删除保险库文件。
+  // persist(library)：调用方提供的明文持久化钩子，在删任何密文之前执行。
+  // 之前是"先删密文、调用方再写明文"：写明文失败（磁盘满/只读）时数据只剩内存，
+  // 退出即丢。现在 persist 抛错就直接中止，vault.json / library.enc 原样保留。
+  // 不传 persist 时行为与旧版一致（返回明文，由调用方自行落盘）。
+  async disable({ pin, persist }) {
     if (this.state === 'disabled') throw new Error('尚未启用 U盾保护');
     if (this.state !== 'unlocked') await this.unlock({ pin });
+    // 已解锁时 unlock() 会直接返回，不能拿它当 PIN 校验：
+    // 之前这里漏了这一步，界面上的 PIN 输入框形同虚设，输错也能把整库落成明文。
+    else await this.#verifyPin(pin);
     const library = this.codec().decode(fs.readFileSync(this.encFile));
+    if (persist) await persist(library);
     for (const file of [this.vaultFile, this.encFile, `${this.encFile}.bak`, `${this.vaultFile}.tmp`]) {
       fs.rmSync(file, { force: true });
     }
     this.lock();
     this.state = 'disabled';
     return library;
+  }
+
+  // 页面已解锁时再核对一次 PIN：打开一次绑定的令牌会话（会走 PIN 校验与 U 盘绑定），
+  // 免 PIN 令牌本来就没有 PIN，openToken 会直接放行。
+  async #verifyPin(pin) {
+    const tokenPath =
+      this.boundTokenPath && fs.existsSync(this.boundTokenPath)
+        ? this.boundTokenPath
+        : this.tokenPath();
+    if (!tokenPath) throw new Error('没有可用的绑定令牌，请插入令牌后再停用保护');
+    let session = null;
+    try {
+      session = await soft.openToken(tokenPath, pin);
+    } catch (err) {
+      throw new Error(`PIN 校验失败：${err.message}`);
+    } finally {
+      if (session) session.close();
+    }
   }
 
   // 重置时用：返回绑定令牌的文件路径（未启用或元数据损坏时返回 null）。
@@ -579,9 +616,17 @@ class Vault {
       found.push(info);
     };
     if (this.boundTokenPath) consider(soft.readTokenInfo(this.boundTokenPath));
+    // 只有"记录路径读不到"的令牌才需要全盘扫描；锁定页每 400ms 调一次本方法，
+    // 每枚令牌都扫一遍挂载点会把轮询变成磁盘扫描（Windows 上尤其慢）。
+    let discovered = null;
+    const findBySerial = (serial) => {
+      if (!discovered) discovered = provider.discover();
+      return discovered.find((info) => info.serial === serial) || null;
+    };
     for (const record of meta.tokens) {
       if (record.path) consider(soft.readTokenInfo(record.path));
-      consider(provider.findBySerial(record.serial));
+      if (seen.has(record.serial)) continue;
+      consider(findBySerial(record.serial));
     }
     return found;
   }

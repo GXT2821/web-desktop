@@ -30,7 +30,13 @@ function candidateRoots() {
   } else if (process.platform === 'darwin') {
     roots.push('/Volumes');
   } else {
-    roots.push('/media', '/mnt', path.join('/run/media', os.userInfo().username));
+    roots.push('/media', '/mnt');
+    // os.userInfo() 在无 passwd 条目的容器里会抛错：没有 /run/media/<user> 就不加这个根
+    try {
+      roots.push(path.join('/run/media', os.userInfo().username));
+    } catch {
+      /* 忽略 */
+    }
   }
   return roots;
 }

@@ -22,7 +22,9 @@ const { spawn } = require('child_process');
 const ROOT = path.join(__dirname, '..', '.tmp-e2e');
 const DATA = path.join(ROOT, 'data');
 const TOKEN_DIR = path.join(ROOT, 'token');
-const TOKEN_FILE = path.join(TOKEN_DIR, 'DocVault.key');
+// 令牌现在按系统分目录存放（<目录>/mac/DocVault.key），不能再硬编码根目录路径，
+// 否则"拔盾"步骤 rename 会 ENOENT。实际路径以 createToken 的返回值为准。
+let TOKEN_FILE = null;
 const PORT = 9226;
 const PIN = '123456';
 
@@ -111,6 +113,17 @@ const CLICK = (sel, text) => `(() => {
   n.click(); return true;
 })()`;
 
+// 侧栏底部的文字链接已改成品牌行右侧的「⋯」菜单（桌面端另有系统菜单栏），
+// 这里通过窗口内那个入口驱动界面，文案不变。
+const OPEN_MORE_MENU = `document.getElementById('moreBtn').click()`;
+const INIT_RENDERED = `document.querySelector('.side-foot').textContent.includes('条记录')`;
+// 等渲染层的 state.info 更新（renderFoot 会写这个状态点），而不只是主进程状态：
+// 启用后紧接着要点「⋯」菜单里的「锁定」，菜单内容取决于渲染层这一份 info。
+const VAULT_UI_ENABLED = `(() => {
+  const node = document.querySelector('.menubar-status');
+  return Boolean(node && node.title.includes('U盾保护中'));
+})()`;
+
 const SUBMIT_PIN = (pin) => `(() => {
   document.getElementById('pinInput').value = ${JSON.stringify(pin)};
   document.getElementById('pinForm').requestSubmit();
@@ -123,7 +136,7 @@ async function main() {
   fs.rmSync(TOKEN_DIR, { recursive: true, force: true });
   fs.mkdirSync(TOKEN_DIR, { recursive: true });
   const soft = require('../src/token/soft-token');
-  await soft.createToken(TOKEN_DIR, PIN);
+  TOKEN_FILE = (await soft.createToken(TOKEN_DIR, PIN)).path;
   log('临时令牌已创建');
 
   // ---- 启动应用 ----
@@ -154,8 +167,9 @@ async function main() {
   log('文档已添加');
 
   // 2. 打开启用向导 → 选择令牌（等侧栏渲染完成再点）
-  await waitFor(() => shell.evaluate(`[...document.querySelectorAll('.side-foot button')].some(b => b.textContent.includes('启用 U盾保护'))`));
-  await shell.evaluate(CLICK('.side-foot button', '启用 U盾保护'));
+  await waitFor(() => shell.evaluate(INIT_RENDERED));
+  await shell.evaluate(OPEN_MORE_MENU);
+  await shell.evaluate(CLICK('.menubar-entry', '启用 U盾保护'));
   await waitFor(() => shell.evaluate(`document.querySelectorAll('.token-item').length > 0`));
   await shell.evaluate(`document.querySelector('.token-item').click()`);
   log('向导：已选择令牌');
@@ -180,7 +194,7 @@ async function main() {
     return true;
   })()`);
   await shell.evaluate(CLICK('.modal button', '完成'));
-  await waitFor(() => shell.evaluate(`document.querySelector('.side-foot').textContent.includes('U盾保护中')`));
+  await waitFor(() => shell.evaluate(VAULT_UI_ENABLED));
   log('保护已启用，侧栏状态正确');
 
   // 5. 文件层面：密文存在、明文被抹掉
@@ -191,7 +205,8 @@ async function main() {
   log('文件校验：library.enc 存在，明文已清理，密文不含明文');
 
   // 6. 手动锁定 → 锁定页（点击后主窗口立即销毁，应答可能丢失，属预期）
-  await shell.evaluate(CLICK('.side-foot button', '锁定')).catch(() => {});
+  await shell.evaluate(OPEN_MORE_MENU).catch(() => {});
+  await shell.evaluate(CLICK('.menubar-entry', '锁定')).catch(() => {});
   let lock = await waitFor(async () => {
     try { return await connect('lock.html'); } catch { return null; }
   });
@@ -235,8 +250,9 @@ async function main() {
   log('插回令牌后解锁成功 ✓');
 
   // 11. 再锁一次（等新窗口侧栏渲染完再点）
-  await waitFor(() => shell.evaluate(`[...document.querySelectorAll('.side-foot button')].some(b => b.textContent.includes('锁定'))`));
-  await shell.evaluate(CLICK('.side-foot button', '锁定')).catch(() => {});
+  await waitFor(() => shell.evaluate(INIT_RENDERED));
+  await shell.evaluate(OPEN_MORE_MENU).catch(() => {});
+  await shell.evaluate(CLICK('.menubar-entry', '锁定')).catch(() => {});
   lock = await waitFor(async () => {
     try { return await connect('lock.html'); } catch { return null; }
   });

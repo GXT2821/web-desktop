@@ -23,7 +23,7 @@ fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
         .map_err(|err| format!("打开链接失败：{err}"))
 }
 
-/// 应用版本号（来自 Cargo.toml），界面底部的 "v1.2.0" 用它
+/// 应用版本号（来自 Cargo.toml，当前 1.2.1），界面底部的 "v<版本>" 用它
 #[tauri::command]
 fn app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()

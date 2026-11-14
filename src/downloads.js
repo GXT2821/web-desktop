@@ -26,12 +26,15 @@ function safeFilename(raw) {
   return name;
 }
 
-function uniquePath(dir, name) {
+// taken：本次进程里已被其他进行中下载占用的路径。
+// 只看磁盘是不够的：两个同名下载几乎同时注册时，文件都还没创建，
+// existsSync 都是 false，会拿到同一个目标路径，后写的那次把前一次覆盖掉。
+function uniquePath(dir, name, taken) {
   const ext = path.extname(name);
   const base = path.basename(name, ext) || 'download';
   let candidate = path.join(dir, name);
   let index = 1;
-  while (fs.existsSync(candidate) && index < 1000) {
+  while ((fs.existsSync(candidate) || (taken && taken.has(candidate))) && index < 1000) {
     candidate = path.join(dir, `${base} (${index})${ext}`);
     index += 1;
   }
@@ -47,9 +50,9 @@ function hostOf(url) {
 }
 
 class Downloads {
-  constructor({ dataDir, getWindow, broadcast }) {
+  // 注：之前还收一个 getWindow 参数，但从未被使用（通知一律走 broadcast），已移除
+  constructor({ dataDir, broadcast }) {
     this.dataDir = dataDir;
-    this.getWindow = getWindow;
     this.broadcast = broadcast || (() => {});
     this.file = path.join(dataDir, 'downloads.json');
     this.items = [];
@@ -136,6 +139,15 @@ class Downloads {
     this.broadcast('downloads:changed', this.snapshot());
   }
 
+  // notified 只服务于"还在历史记录里"的条目：不清理的话它会随着下载数量
+  // 无限增长（记录本身只留 50 条，这个 Set 却永远只增不减），长期运行泄漏内存。
+  pruneNotified() {
+    const alive = new Set(this.items.map((entry) => entry.id));
+    for (const id of this.notified) {
+      if (!alive.has(id)) this.notified.delete(id);
+    }
+  }
+
   // ---------- 目录 ----------
 
   downloadDir() {
@@ -199,7 +211,11 @@ class Downloads {
     }
 
     const dir = this.downloadDir();
-    const target = uniquePath(dir, filename);
+    // 进行中的下载目标也要避开：同名文件并发下载时磁盘上还没有文件可查
+    const taken = new Set(
+      this.items.filter((entry) => entry.state === 'progressing').map((entry) => entry.path)
+    );
+    const target = uniquePath(dir, filename, taken);
     try {
       item.setSavePath(target);
     } catch (err) {
@@ -212,7 +228,9 @@ class Downloads {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       filename: path.basename(target),
       path: target,
-      url: typeof item.getURL === 'string' ? item.getURL() : '',
+      // getURL 是方法不是字符串：之前 typeof === 'string' 恒为 false，
+      // 导致 downloads.json 里的 url 字段永远是空串
+      url: typeof item.getURL === 'function' ? item.getURL() : '',
       host: hostOf(from),
       state: 'progressing',
       received: 0,
@@ -222,6 +240,7 @@ class Downloads {
     };
     this.items.unshift(entry);
     if (this.items.length > MAX_HISTORY) this.items.length = MAX_HISTORY;
+    this.pruneNotified();
     this.live.set(entry.id, item);
     this.save();
     this.push();
@@ -339,6 +358,7 @@ class Downloads {
 
   clearFinished() {
     this.items = this.items.filter((entry) => entry.state === 'progressing');
+    this.pruneNotified();
     this.save();
     this.push();
     return this.snapshot();

@@ -67,10 +67,10 @@ contextBridge.exposeInMainWorld('api', {
   onDownloadFailed: (callback) => {
     ipcRenderer.on('downloads:failed', (_event, payload) => callback(payload));
   },
-  // 主进程转发：焦点在网页里时按下的应用级快捷键
   // 打开中的标签页（仅内存，供锁定后重建窗口时恢复）
   saveSession: (state) => ipcRenderer.send('session:save', state),
   getSession: () => call('session:get'),
+  // 主进程转发：系统菜单栏的动作 / 焦点在网页里时按下的应用级快捷键
   onMenuAction: (callback) => {
     ipcRenderer.on('menu-action', (_event, id) => callback(id));
   },

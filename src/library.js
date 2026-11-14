@@ -138,6 +138,13 @@
     }
   };
 
+  // localStorage 里的值可能被外部改坏（不是数组）。直接 new Set(obj) 会抛错，
+  // 整个渲染层在加载阶段就崩掉，所以先校验类型并过滤掉非字符串的 id。
+  const readCollapsed = () => {
+    const stored = readPref('collapsed', []);
+    return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []);
+  };
+
   // 供 shell.js 复用（同一套 DOM 构造方式，避免两份实现）
   window.Dom = { el, clear, hostOf };
 
@@ -159,7 +166,7 @@
     tags: new Set(),
     query: '',
     sort: SORTS[readPref('sort', 'created_desc')] ? readPref('sort', 'created_desc') : 'created_desc',
-    collapsed: new Set(readPref('collapsed', [])),
+    collapsed: readCollapsed(),
   };
 
   let hooks = {};
@@ -385,6 +392,7 @@
       document.removeEventListener('pointerdown', menuCloseHandler, true);
       menuCloseHandler = null;
     }
+    if (!dom.sideTools) return;
     for (const btn of dom.sideTools.querySelectorAll('.menubar-item')) {
       btn.setAttribute('aria-expanded', 'false');
     }
@@ -482,65 +490,70 @@
     const info = state.info || {};
     const vaultInfo = info.vault || { enabled: false };
 
-    // 顶部菜单栏
-    clear(dom.sideTools);
-    const menus = [
-      {
-        label: '文件',
-        actions: [
-          { label: '打开数据文件位置', onClick: () => window.api.revealDataFile().catch((err) => toast(err.message, true)) },
-          { separator: true },
-          { label: '重置…', hint: '清空文档库并恢复出厂状态', onClick: resetDialog },
-        ],
-      },
-      {
-        label: 'U盾',
-        actions: vaultInfo.enabled
-          ? [
-              { label: '锁定', onClick: lockVault },
-              {
-                label: vaultInfo.tokenCount > 1 ? `令牌管理（${vaultInfo.tokenCount} 枚）…` : '令牌管理…',
-                onClick: vaultTokensDialog,
-              },
-              { separator: true },
-              { label: '停用 U盾保护…', onClick: vaultDisableDialog },
-            ]
-          : [{ label: '启用 U盾保护…', onClick: vaultEnrollWizard }],
-      },
-      {
-        label: '帮助',
-        actions: [{ label: '关于文档库…', onClick: aboutDialog }],
-      },
-    ];
-
-    for (const menu of menus) {
-      const btn = el('button', {
-        class: 'menubar-item',
-        type: 'button',
-        text: menu.label,
-        'aria-haspopup': 'menu',
-        'aria-expanded': 'false',
-        onclick: (event) => {
-          event.stopPropagation();
-          if (openMenuEl && btn.getAttribute('aria-expanded') === 'true') {
-            closeMenuBar();
-            return;
-          }
-          openMenuBar(btn, menu.actions);
+    // 窗口内菜单栏不是每个外壳都有（Android 的 index.html 没有 #sideTools，
+    // 桌面端的入口在系统菜单栏）。这里必须容错：clear(null) 会抛错，
+    // 让 init 以及每次写入后的 absorb() 都失败。
+    if (dom.sideTools) {
+      // 顶部菜单栏
+      clear(dom.sideTools);
+      const menus = [
+        {
+          label: '文件',
+          actions: [
+            { label: '打开数据文件位置', onClick: () => window.api.revealDataFile().catch((err) => toast(err.message, true)) },
+            { separator: true },
+            { label: '重置…', hint: '清空文档库并恢复出厂状态', onClick: resetDialog },
+          ],
         },
-      });
-      dom.sideTools.append(btn);
-    }
+        {
+          label: 'U盾',
+          actions: vaultInfo.enabled
+            ? [
+                { label: '锁定', onClick: lockVault },
+                {
+                  label: vaultInfo.tokenCount > 1 ? `令牌管理（${vaultInfo.tokenCount} 枚）…` : '令牌管理…',
+                  onClick: vaultTokensDialog,
+                },
+                { separator: true },
+                { label: '停用 U盾保护…', onClick: vaultDisableDialog },
+              ]
+            : [{ label: '启用 U盾保护…', onClick: vaultEnrollWizard }],
+        },
+        {
+          label: '帮助',
+          actions: [{ label: '关于文档库…', onClick: aboutDialog }],
+        },
+      ];
 
-    dom.sideTools.append(
-      el('span', {
-        class: 'menubar-status',
-        text: vaultInfo.enabled ? '🔒' : '',
-        title: vaultInfo.enabled
-          ? `U盾保护中${vaultInfo.tokenCount > 1 ? `（${vaultInfo.tokenCount} 枚令牌）` : ''}`
-          : '',
-      })
-    );
+      for (const menu of menus) {
+        const btn = el('button', {
+          class: 'menubar-item',
+          type: 'button',
+          text: menu.label,
+          'aria-haspopup': 'menu',
+          'aria-expanded': 'false',
+          onclick: (event) => {
+            event.stopPropagation();
+            if (openMenuEl && btn.getAttribute('aria-expanded') === 'true') {
+              closeMenuBar();
+              return;
+            }
+            openMenuBar(btn, menu.actions);
+          },
+        });
+        dom.sideTools.append(btn);
+      }
+
+      dom.sideTools.append(
+        el('span', {
+          class: 'menubar-status',
+          text: vaultInfo.enabled ? '🔒' : '',
+          title: vaultInfo.enabled
+            ? `U盾保护中${vaultInfo.tokenCount > 1 ? `（${vaultInfo.tokenCount} 枚令牌）` : ''}`
+            : '',
+        })
+      );
+    }
 
     // 底部统计
     clear(dom.sideFoot);
@@ -817,7 +830,15 @@
   }
 
   // ==================== 弹窗基座 ====================
-  function openModal(node) {
+  // 恢复码弹窗不允许用 Esc / 点遮罩关掉：保护已经启用、恢复码只显示这一次，
+  // 误关就再也拿不到（虽然令牌还能用，但令牌丢了就没有退路了）。
+  let modalLocked = false;
+
+  function openModal(node, { locked = false } = {}) {
+    // 恢复码弹窗还在时不接受新的弹窗：恢复码只显示这一次，被顶掉就再也拿不到。
+    // Esc / 点遮罩已经挡了，但系统菜单的「关于」「添加文档」等仍会走到这里。
+    if (modalLocked && !dom.modalRoot.hidden) return;
+    modalLocked = locked;
     clear(dom.modalBox);
     dom.modalBox.append(node);
     dom.modalRoot.hidden = false;
@@ -827,6 +848,7 @@
   }
 
   function closeModal() {
+    modalLocked = false;
     dom.modalRoot.hidden = true;
     clear(dom.modalBox);
   }
@@ -1208,14 +1230,16 @@
       }
     });
 
-    // Esc 关闭弹窗；点遮罩也关闭
+    // Esc 关闭弹窗；点遮罩也关闭（恢复码弹窗除外，见 modalLocked）
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && isModalOpen()) {
+      if (event.key === 'Escape' && isModalOpen() && !modalLocked) {
         event.preventDefault();
         closeModal();
       }
     });
-    dom.modalBackdrop.addEventListener('click', closeModal);
+    dom.modalBackdrop.addEventListener('click', () => {
+      if (!modalLocked) closeModal();
+    });
   }
 
   function cacheDom() {
@@ -1309,6 +1333,16 @@
 
     const refresh = async () => {
       tokens = await window.api.vaultTokens();
+      // 解绑「当前解锁用的那枚」时，主进程会把 boundSerial 切到剩下的一枚
+      // （见 vault.removeToken），status 里的 pinFree / tokenCount 也随之变化。
+      // 这里不刷新 state.info 的话，后面打开的「停用」对话框会按旧令牌决定收不收
+      // PIN——需要 PIN 时却把输入框藏了，怎么输都失败，只能重启应用。
+      try {
+        state.info = await window.api.getInfo();
+        renderFoot();
+      } catch {
+        /* 状态刷新失败不影响令牌列表本身 */
+      }
       render();
     };
 
@@ -1616,6 +1650,7 @@
           .then(() => toast('恢复码已复制，请保存到安全的地方'))
           .catch((err) => toast(err.message, true)),
       });
+      // 恢复码是令牌丢失后的唯一退路，这扇窗只能通过「完成」关闭（locked: true）
       openModal(el('div', {}, [
         el('h2', { text: '保存恢复码' }),
         el('p', { class: 'modal-desc', text: pinFree
@@ -1627,7 +1662,7 @@
         el('div', { class: 'modal-actions' }, [copyBtn]),
         el('label', { class: 'check-row' }, [savedCheck, el('span', { text: '我已安全保存恢复码' })]),
         el('div', { class: 'modal-actions' }, [doneBtn]),
-      ]));
+      ]), { locked: true });
     }
 
     stepChoose();

@@ -120,12 +120,19 @@
   function sanitizeLibrary(raw) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const folders = [];
+    const seenFolderIds = new Set();
     for (const item of Array.isArray(source.folders) ? source.folders : []) {
       if (!item || typeof item !== 'object') continue;
       const name = cleanText(item.name, LIMITS.folderName);
       if (!name) continue;
+      // id 也要去重：重复 id 会让"删除/移动文件夹"同时作用到多个目录，和 docs 一样重建
+      const id =
+        typeof item.id === 'string' && item.id && !seenFolderIds.has(item.id)
+          ? item.id
+          : makeId('f');
+      seenFolderIds.add(id);
       folders.push({
-        id: typeof item.id === 'string' && item.id ? item.id : makeId('f'),
+        id,
         name,
         parentId: typeof item.parentId === 'string' ? item.parentId : null,
         createdAt: Number(item.createdAt) || Date.now(),
@@ -136,6 +143,22 @@
     for (const folder of folders) {
       if (folder.parentId === folder.id || (folder.parentId && !folderIds.has(folder.parentId))) {
         folder.parentId = null;
+      }
+    }
+    // 多节点环（A→B→A）也要解开：环上的文件夹都挂不到根节点下，
+    // 文件夹树从根开始渲染，整棵子树会凭空"消失"（数据在库里却看不见）。
+    // 沿父链向上走，走回自己就说明自己在环上，把父级切断挂回根目录。
+    const folderById = new Map(folders.map((f) => [f.id, f]));
+    for (const folder of folders) {
+      const seen = new Set();
+      let cursor = folder.parentId ? folderById.get(folder.parentId) : null;
+      while (cursor && !seen.has(cursor.id)) {
+        if (cursor.id === folder.id) {
+          folder.parentId = null;
+          break;
+        }
+        seen.add(cursor.id);
+        cursor = cursor.parentId ? folderById.get(cursor.parentId) : null;
       }
     }
 
@@ -255,17 +278,27 @@
       const doc = this.data.docs.find((d) => d.id === id);
       if (!doc) throw new Error('文档不存在，可能已被删除');
 
-      if (patch.url !== undefined) {
-        const nextUrl = normalizeUrl(patch.url);
-        // 同目录下不允许两条同链接（跨目录可以）
-        const clash = this.findDuplicate(nextUrl, doc.folderId);
+      // 目标文件夹要在查重之前算好：patch 同时改链接和文件夹时，用旧文件夹查重
+      // 会漏掉"目标文件夹里已有同一链接"的情况，结果同目录出现两条相同链接。
+      const nextFolderId =
+        patch.folderId !== undefined
+          ? this.data.folders.some((f) => f.id === patch.folderId)
+            ? patch.folderId
+            : null
+          : doc.folderId;
+
+      if (patch.url !== undefined || patch.folderId !== undefined) {
+        const nextUrl = patch.url !== undefined ? normalizeUrl(patch.url) : doc.url;
+        // 同目录下不允许两条同链接（跨目录可以）。改链接、改文件夹都要查：
+        // 只改文件夹也会把"目标目录里已有同链接"变成重复数据。
+        const clash = this.findDuplicate(nextUrl, nextFolderId);
         if (clash && clash.id !== id) {
           const err = new Error(`该链接已被同目录的「${clash.title}」使用`);
           err.code = 'DUPLICATE_URL';
           err.existingId = clash.id;
           throw err;
         }
-        doc.url = nextUrl;
+        if (patch.url !== undefined) doc.url = nextUrl;
       }
       if (patch.title !== undefined) {
         const title = cleanText(patch.title, LIMITS.title);
@@ -277,9 +310,7 @@
       if (patch.tags !== undefined) doc.tags = normalizeTags(patch.tags);
       if (patch.star !== undefined) doc.star = patch.star === true;
       if (patch.folderId !== undefined) {
-        doc.folderId = this.data.folders.some((f) => f.id === patch.folderId)
-          ? patch.folderId
-          : null;
+        doc.folderId = nextFolderId;
       }
       // 仅自动标题占位时才接受网页报上来的标题，且只补全一次
       if (patch.autoTitle !== undefined && doc.titleAuto) {

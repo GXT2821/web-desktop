@@ -4,6 +4,7 @@
 // 点开文档在应用内用 <webview> 打开（登录态由 Electron 的持久化 session 保留）。
 
 const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, session, screen, dialog, powerMonitor } = require('electron');
+const { fileURLToPath } = require('url');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -71,7 +72,6 @@ function broadcastToWindows(channel, payload) {
 // 下载记录与管理（不含流式内容，只记元数据）
 const downloads = new Downloads({
   dataDir: DATA_DIR,
-  getWindow: () => BrowserWindow.getAllWindows()[0] || null,
   broadcast: broadcastToWindows,
 });
 const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
@@ -83,23 +83,30 @@ const SHELL_FILE = path.join(__dirname, 'src', 'shell.html');
 // 锁定页路径：锁定窗口只允许停在这个文件上
 const LOCK_FILE = path.join(__dirname, 'src', 'lock.html');
 
-// 是否为外壳自身的地址（容忍 file:// 的百分号编码差异与 #hash）
-function isShellUrl(raw) {
+// 是否为外壳自身的地址（容忍 file:// 的百分号编码、#hash 与平台路径差异）
+// 注意不能直接拿 URL.pathname 和本地路径比：Windows 上 pathname 是 "/C:/…"，
+// 而 SHELL_FILE 是 "C:\\…"，两者永远不相等，守卫会把外壳自己的页面也当成外部导航。
+function fileUrlMatches(raw, target) {
   try {
     const url = new URL(String(raw));
-    return url.protocol === 'file:' && decodeURIComponent(url.pathname) === SHELL_FILE;
+    if (url.protocol !== 'file:') return false;
+    const actual = path.normalize(fileURLToPath(url));
+    const expected = path.normalize(target);
+    // Windows 路径大小写不敏感，盘符大小写可能不一致
+    return process.platform === 'win32'
+      ? actual.toLowerCase() === expected.toLowerCase()
+      : actual === expected;
   } catch {
     return false;
   }
 }
 
+function isShellUrl(raw) {
+  return fileUrlMatches(raw, SHELL_FILE);
+}
+
 function isLockUrl(raw) {
-  try {
-    const url = new URL(String(raw));
-    return url.protocol === 'file:' && decodeURIComponent(url.pathname) === LOCK_FILE;
-  } catch {
-    return false;
-  }
+  return fileUrlMatches(raw, LOCK_FILE);
 }
 
 // 默认允许的网页权限：只留"不碰硬件与隐私"的两项，其余（摄像头/麦克风/定位/通知/USB 等）一律拒绝
@@ -401,8 +408,15 @@ function registerSessionIpc() {
       activeIndex: Number.isInteger(state.activeIndex) ? state.activeIndex : 0,
     };
   });
-  // 与其它通道保持同样的 { ok, data } 返回形状（preload 的 call() 依赖它）
-  ipcMain.handle('session:get', () => ({ ok: true, data: sessionTabs }));
+  // 与其它通道保持同样的 { ok, data } 返回形状（preload 的 call() 依赖它）。
+  // 会话里是打开着的文档链接，同样只给主窗口：之前漏了 sender 校验，
+  // 与 session:save / 数据通道的门禁不一致
+  ipcMain.handle('session:get', (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { ok: false, error: '当前窗口无权执行此操作' };
+    }
+    return { ok: true, data: sessionTabs };
+  });
 }
 
 function registerIpc() {
@@ -504,13 +518,34 @@ function registerIpc() {
 // ---------- 保险库：生命周期 ----------
 
 // 用户确认进入：加载数据 → 打开主窗口 → 销毁锁定窗口
+// 单独包一层 try/catch：本函数会从 setImmediate / 事件回调里调用，
+// 数据目录不可写时抛出的异常没人接，会直接崩掉主进程（表现为窗口刚出现又消失）。
 function bootUnlocked() {
+  try {
+    startUnlocked();
+  } catch (err) {
+    console.error(`[startup] 打开文档库失败：${err.message}`);
+    try {
+      dialog.showErrorBox('无法打开文档库', err.message);
+    } catch {
+      /* 无图形环境时忽略 */
+    }
+    // 没有锁定页可回退（首次启动）时别留一个无窗口的僵尸进程
+    if (BrowserWindow.getAllWindows().length === 0) app.quit();
+  }
+}
+
+function startUnlocked() {
+  // 解锁与"确定进入"是两条 IPC，理论上可能被连点；已在文档库界面时不再开第二个窗口
+  if (mainWindow && !mainWindow.isDestroyed()) return;
   pendingEnter = false;
   const result = openStore();
   mainWindow = createMainWindow();
   if (lockWindow && !lockWindow.isDestroyed()) lockWindow.destroy();
   lockWindow = null;
   lastActivity = Date.now();
+  // 解锁后重建菜单：恢复流程里可能新增/解绑过令牌，菜单上的"令牌管理（N 枚）"要跟上
+  setupMenu();
 
   if (result.recovered !== 'none') {
     const message = result.recovered === 'backup'
@@ -542,6 +577,9 @@ function doLock(reason) {
 // 锁定页会播放读取动画，用户点「确定」才打开文档库。
 // 带 PIN 的令牌绝不会被自动尝试（否则会白白扣掉它的尝试次数）。
 let autoUnlockBusy = false;
+// 解锁失败（令牌不对/数据被改坏）后的冷却时间：锁定页每 400ms 轮询一次，
+// 失败还继续重试会反复解密校验并把日志刷满，等 10 秒再试。
+let autoUnlockRetryAt = 0;
 let pendingEnter = false; // 密钥已解包、等待用户点「确定」
 
 function notifyLock(channel, payload) {
@@ -557,17 +595,19 @@ function notifyLock(channel, payload) {
 }
 
 async function readKeyOnly(reason) {
-  if (autoUnlockBusy) return false;
+  if (autoUnlockBusy || Date.now() < autoUnlockRetryAt) return false;
   const token = vault.autoUnlockToken();
   if (!token) return false;
   autoUnlockBusy = true;
   try {
     await vault.unlock({ pin: '', tokenPath: token.path });
+    autoUnlockRetryAt = 0;
     pendingEnter = true;
     console.log(`[vault] 密钥已读取（${reason}），等待用户确认进入`);
     notifyLock('vault:ready', { serial: token.serial, path: token.path });
     return true;
   } catch (err) {
+    autoUnlockRetryAt = Date.now() + 10_000;
     console.error(`[vault] 读取密钥失败（${reason}）：${err.message}`);
     notifyLock('vault:error', { message: err.message });
     return false;
@@ -640,8 +680,16 @@ function registerVaultIpc() {
   }));
   handleVault('vault:detect', () => tokenProvider.discover());
   handleVault('vault:tokens', () => vault.tokenList());
-  handleVault('vault:add-token', ({ tokenPath, pin } = {}) => vault.addToken({ tokenPath, pin }));
-  handleVault('vault:remove-token', ({ serial } = {}) => vault.removeToken(serial));
+  handleVault('vault:add-token', async ({ tokenPath, pin } = {}) => {
+    const result = await vault.addToken({ tokenPath, pin });
+    setupMenu(); // 令牌数变了，系统菜单里的"令牌管理（N 枚）"要重建
+    return result;
+  }, { from: 'main' });
+  handleVault('vault:remove-token', ({ serial } = {}) => {
+    const result = vault.removeToken(serial);
+    setupMenu();
+    return result;
+  }, { from: 'main' });
 
   handleVault('vault:pick-dir', async (_payload, origin) => {
     const parent = origin === 'main' ? mainWindow : lockWindow;
@@ -680,7 +728,12 @@ function registerVaultIpc() {
     const result = await vault.enroll({ tokenPath: usedPath, pin: free ? '' : pin, library: store.data });
     wipePlaintextLibrary();
     openStore(); // 切换到 library.enc（load 会再校验一次密文）
-    return result;
+    // 启用后系统菜单要立刻从"启用 U盾保护…"变成"锁定 / 令牌管理 / 停用"，
+    // 之前只有停用才重建菜单，启用后菜单会一直停在旧状态。
+    setupMenu();
+    // 渲染层的恢复码弹窗要显示令牌文件名（stepRecovery 读 result.tokenPath），
+    // vault.enroll 本身不返回路径，这里补上
+    return { ...result, tokenPath: usedPath };
   }, { from: 'main' });
 
   handleVault('vault:lock', () => {
@@ -707,7 +760,12 @@ function registerVaultIpc() {
       tokenPath: vault.tokenPath(),
     });
     if (result.failed.length) {
+      // 有文件删不掉（被占用、只读盘等）就不要重启：之前只打日志仍然 relaunch，
+      // 界面显示的是"正在清空并重启"，实际数据只删了一半。
       console.error('[reset] 部分文件删除失败：', result.failed);
+      throw new Error(
+        `有 ${result.failed.length} 个文件删除失败，已取消重启：${result.failed.map((item) => item.name).join('、')}`
+      );
     }
     // 内存里的明文/密钥已无意义，直接重启回到全新状态
     setTimeout(() => {
@@ -717,14 +775,30 @@ function registerVaultIpc() {
     return result;
   }, { from: 'main' });
 
-  // 停用保护：PIN 校验 → 还原明文 → 删除保险库文件
+  // 停用保护：PIN 校验 → 先原子写明文 → 成功后才删密文与 vault.json。
+  // 顺序不能反：之前先删密文再写 library.json，写失败（磁盘满/只读）时
+  // 数据只剩内存一份，退出即丢。现在任何一步失败密文都还在，可重试。
   handleVault('vault:disable', async ({ pin }) => {
-    const plain = await vault.disable({ pin });
-    setupMenu();
-    fs.writeFileSync(path.join(DATA_DIR, 'library.json'), `${JSON.stringify(plain, null, 2)}\n`, {
-      encoding: 'utf-8',
-      mode: 0o600,
+    const plain = await vault.disable({
+      pin,
+      persist: async (library) => {
+        const file = path.join(DATA_DIR, 'library.json');
+        const tmp = `${file}.tmp`;
+        await fs.promises.writeFile(tmp, `${JSON.stringify(library, null, 2)}\n`, {
+          encoding: 'utf-8',
+          mode: 0o600,
+        });
+        // 与 Store.save 同样的约定：替换前给已有文件留一份备份
+        if (fs.existsSync(file)) await fs.promises.copyFile(file, `${file}.bak`);
+        await fs.promises.rename(tmp, file);
+        try {
+          await fs.promises.chmod(file, 0o600); // 已存在的旧文件 mode 不会变，兜底纠正
+        } catch {
+          /* 权限纠正失败可忽略 */
+        }
+      },
     });
+    setupMenu();
     try {
       for (const name of fs.readdirSync(DATA_DIR)) {
         if (name.startsWith('library.enc.corrupt-')) fs.rmSync(path.join(DATA_DIR, name), { force: true });
@@ -771,7 +845,8 @@ function registerVaultIpc() {
 
 // ---------- 会话级加固（权限 / 下载） ----------
 
-function hardenSession(getWindow) {
+// 注：之前收一个 getWindow 参数但从未使用，已移除
+function hardenSession() {
   const ses = session.defaultSession;
 
   // 权限：默认拒绝，只放行白名单里的两项。
@@ -873,8 +948,12 @@ function setupMenu() {
     {
       label: '视图',
       submenu: [
-        { role: 'toggleDevTools', label: '开发者工具' },
-        { type: 'separator' },
+        // 与 bindDevtools 保持同一门槛：打包版默认不给开发者工具入口。
+        // 只藏快捷键不藏菜单等于没关——role 仍然会打开外壳页面的调试器，
+        // 而调试器里可以直接调用 window.api 读写整个文档库。
+        ...(app.isPackaged && process.env.DOCVAULT_DEVTOOLS !== '1'
+          ? []
+          : [{ role: 'toggleDevTools', label: '开发者工具' }, { type: 'separator' }]),
         { role: 'resetZoom', label: '实际大小' },
         { role: 'zoomIn', label: '放大' },
         { role: 'zoomOut', label: '缩小' },
@@ -973,12 +1052,10 @@ if (!gotLock) {
 
     // 干净 UA + 会话加固（权限默认拒绝、下载接管）
     session.defaultSession.setUserAgent(buildCleanUA(session.defaultSession.getUserAgent()));
-    hardenSession(() => BrowserWindow.getAllWindows()[0] || null);
+    hardenSession();
 
     // lock-first：启用了 U盾保护就先开锁定窗口，数据层完全不加载；
     // 没有启用则保持旧行为，直接进文档库。
-    // 免 PIN 令牌插着时自动解锁：先不建窗口，解锁成功直接进主界面；
-    // 失败（令牌是带 PIN 的、或数据对不上）再退回锁定页。
     if (vault.isEnabled()) {
       // 先开锁定页（插着免 PIN 令牌时它负责播放读取动画）；密钥读取在后台进行，
       // 读完后由用户点「确定」再进入，不再自动跳转。
@@ -991,15 +1068,29 @@ if (!gotLock) {
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length > 0) return;
-      if (vault.isEnabled() && vault.isLocked()) {
+      // pendingEnter = 密钥已解包但用户还没点「确定」：也要回到锁定页，
+      // 不能因为"已经解锁"就直接进主界面，否则关掉锁定窗口再点 Dock 就绕过了确认。
+      if (vault.isEnabled() && (vault.isLocked() || pendingEnter)) {
         lockWindow = createLockWindow();
-        if (vault.autoUnlockToken()) readKeyOnly('窗口重新打开时检测到令牌');
+        if (vault.state !== 'recovery' && vault.autoUnlockToken()) {
+          readKeyOnly('窗口重新打开时检测到令牌');
+        }
       } else if (store) {
         mainWindow = createMainWindow(); // macOS 关窗后再点 Dock：会话仍解锁
       } else {
         bootUnlocked();
       }
     });
+  }).catch((err) => {
+    // 启动阶段还没有窗口承接错误（例如数据目录不可写、首次建库失败）。
+    // 不处理的话就是一个 unhandled rejection：用户看到的是"双击没反应"。
+    console.error(`[startup] ${err && err.stack ? err.stack : err}`);
+    try {
+      dialog.showErrorBox('文档库启动失败', String((err && err.message) || err));
+    } catch {
+      /* 无图形环境时忽略 */
+    }
+    app.quit();
   });
 
   app.on('window-all-closed', () => {

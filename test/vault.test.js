@@ -461,6 +461,56 @@ test('停用保护：还原明文库并清掉保险库文件', () =>
     assert.equal(store.data.docs.length, 1);
   }));
 
+test('停用保护：已解锁状态也要校验 PIN，错的 PIN 不能把整库落成明文', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const { path: tokenPath } = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath, pin: '123456', library: SAMPLE });
+
+    // 当前是 unlocked：unlock() 会直接返回，必须显式校验 PIN
+    await assert.rejects(() => vault.disable({ pin: '000000' }), /PIN 校验失败/);
+    assert.equal(vault.isEnabled(), true, '校验失败不能删掉保险库');
+    assert.ok(fs.existsSync(path.join(dataDir, 'library.enc')));
+    assert.equal(vault.status().locked, false);
+
+    // 正确 PIN 仍然可以停用
+    const plain = await vault.disable({ pin: '123456' });
+    assert.deepEqual(plain, SAMPLE);
+    assert.equal(fs.existsSync(path.join(dataDir, 'vault.json')), false);
+  }));
+
+test('停用保护：persist 在删密文之前执行，失败时保险库原样保留', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const { path: tokenPath } = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath, pin: '123456', library: SAMPLE });
+
+    // 1) persist 失败（模拟磁盘满/只读）：不能删掉任何保险库文件
+    await assert.rejects(
+      () => vault.disable({ pin: '123456', persist: async () => { throw new Error('磁盘满'); } }),
+      /磁盘满/
+    );
+    assert.equal(vault.isEnabled(), true, 'persist 失败不能删掉 vault.json');
+    assert.ok(fs.existsSync(path.join(dataDir, 'library.enc')), 'persist 失败不能删掉密文');
+    assert.equal(vault.status().locked, false, '失败后仍应保持解锁，可重试');
+
+    // 2) persist 成功：回调执行时密文必须还在（先写明文、后删密文）
+    let encPresentDuringPersist = false;
+    let persisted = null;
+    const plain = await vault.disable({
+      pin: '123456',
+      persist: async (library) => {
+        encPresentDuringPersist = fs.existsSync(path.join(dataDir, 'library.enc'));
+        persisted = library;
+      },
+    });
+    assert.equal(encPresentDuringPersist, true, '写明文时密文尚未删除');
+    assert.deepEqual(persisted, SAMPLE);
+    assert.deepEqual(plain, SAMPLE);
+    assert.equal(vault.isEnabled(), false);
+    assert.ok(!fs.existsSync(path.join(dataDir, 'library.enc')));
+  }));
+
 // ---------- 多令牌：一套系统一枚，共用一个保险库 ----------
 
 test('多令牌：同一个 U 盘目录可放多枚令牌，追加后两枚都能解锁', () =>
@@ -562,4 +612,51 @@ test('多令牌：tokenList 返回已绑定的令牌与在场状态', () =>
       assert.equal(token.present, true, '两枚令牌文件都还在，应显示在场');
       assert.ok(token.path, '应带令牌路径');
     }
+  }));
+
+test('多令牌：status().pinFree 跟随当前解锁使用的那枚令牌', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const first = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
+
+    // 再绑定一枚免 PIN 令牌；tokens[0] 仍是上面那枚带 PIN 的
+    const freeDir = path.join(tokenDir, 'free');
+    fs.mkdirSync(freeDir);
+    const free = await soft.createToken(freeDir, '', { pinFree: true });
+    await vault.addToken({ tokenPath: free.path, pin: '' });
+
+    vault.lock();
+    await vault.unlock({ pin: '', tokenPath: free.path });
+    assert.equal(vault.status().pinFree, true, '当前用免 PIN 令牌解锁，停用对话框不应再要 PIN');
+    assert.equal(vault.status().serial, free.serial);
+
+    vault.lock();
+    await vault.unlock({ pin: '123456', tokenPath: first.path });
+    assert.equal(vault.status().pinFree, false, '换回带 PIN 的令牌后要重新收 PIN');
+    assert.equal(vault.status().serial, first.serial);
+  }));
+
+test('多令牌：解绑当前使用的那枚后，状态切到剩下的一枚（界面据此决定停用要不要收 PIN）', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const first = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
+
+    const freeDir = path.join(tokenDir, 'free');
+    fs.mkdirSync(freeDir);
+    const free = await soft.createToken(freeDir, '', { pinFree: true });
+    await vault.addToken({ tokenPath: free.path, pin: '' });
+
+    vault.lock();
+    await vault.unlock({ pin: '', tokenPath: free.path });
+    assert.equal(vault.status().pinFree, true);
+
+    // 解绑的正是当前这把钥匙：boundSerial 必须切到剩下那枚，
+    // 否则 status().pinFree 会一直停在 true，停用对话框把 PIN 输入框藏起来。
+    vault.removeToken(free.serial);
+    assert.equal(vault.status().tokenCount, 1);
+    assert.equal(vault.status().serial, first.serial);
+    assert.equal(vault.status().pinFree, false, '剩下的令牌需要 PIN');
+    assert.equal(vault.boundTokenPresent(), true, '剩下的令牌仍在场，不应误上锁');
   }));

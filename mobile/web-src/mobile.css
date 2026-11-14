@@ -33,7 +33,7 @@ body {
    反而更难扫视和点准，单独按紧凑尺寸处理（见下方 .tag-chip）。 */
 button:not(.tag-chip),
 .side-item,
-.tree-row,
+.tree-item,
 .doc-card {
   min-height: 40px;
 }
@@ -107,11 +107,6 @@ button:active,
 /* 侧栏在平板上常驻，手机上窄一些；折叠成图标栏时与桌面端一致 */
 .sidebar {
   width: 248px;
-}
-
-/* Android 上没有数据文件可定位，底部那个"打开数据文件位置"隐藏掉，用列表右上角的导入导出代替 */
-.side-foot button {
-  display: none;
 }
 
 /* 弹窗里的 JSON 文本域 */

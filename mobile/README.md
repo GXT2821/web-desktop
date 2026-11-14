@@ -112,7 +112,7 @@ PASS=$(grep storePassword .android-keys/keystore.properties | cut -d= -f2)
 > 换了密钥就只能先卸载再装，应用数据（localStorage 里的文档库）会一起丢掉。
 > 这个目录已经写进 `.gitignore`，请自己另外备份一份。
 
-生成的包约 5.6 MB（debug 包 118 MB，因为带全部 ABI 的调试符号）。
+生成的包约 5.8 MB（debug 包 118 MB，因为带全部 ABI 的调试符号）。
 
 ## 安装
 
@@ -136,7 +136,7 @@ adb install -r dist/DocVault-Android-1.2.1-arm64.apk
 
 导入支持两种模式：
 
-- **合并**：只补库里没有的（按 id 或链接去重），不动现有数据；
+- **合并**：只补库里没有的（按 id、或「同文件夹内的链接」去重；不同文件夹允许同一链接，与桌面端一致），不动现有数据；
 - **覆盖**：用文件内容替换整个库（会先提示，重要数据请先在电脑备份）。
 
 校验规则和桌面版是同一份代码（`src/store-core.js`）：只接受 http/https、

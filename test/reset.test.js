@@ -23,6 +23,7 @@ test('重置：删除库/保险库/下载记录/留档，保留其他文件', ()
     'library.enc.bak',
     'vault.json',
     'downloads.json',
+    'downloads.json.tmp', // 原子写残留也要清掉
     'library.json.corrupt-2026-01-01',
     'library.enc.corrupt-2026-01-02',
     'window-state.json', // 不属于数据，保留
@@ -37,7 +38,7 @@ test('重置：删除库/保险库/下载记录/留档，保留其他文件', ()
 
   const result = resetDataDir(dir);
   assert.equal(result.failed.length, 0);
-  for (const name of ['library.json', 'library.enc', 'vault.json', 'downloads.json']) {
+  for (const name of ['library.json', 'library.enc', 'vault.json', 'downloads.json', 'downloads.json.tmp']) {
     assert.equal(fs.existsSync(path.join(dir, name)), false, `${name} 应被删除`);
   }
   // 删除前必须留一份备份

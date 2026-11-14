@@ -115,7 +115,7 @@
       sidebar.addEventListener('click', (event) => {
         if (!isNarrow() || !drawerOpen()) return;
         if (event.target.closest('#collapseBtn')) return;
-        if (event.target.closest('.side-item, .tree-row, .tag-chip, .side-foot')) {
+        if (event.target.closest('.side-item, .tree-item, .tag-chip, .side-foot')) {
           setTimeout(() => setDrawer(false), 120);
         }
       });
@@ -242,6 +242,9 @@
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       errorText.hidden = true;
+      // 覆盖是整库替换，误点一下现有数据就没了：README 承诺「会先提示」，
+      // 这里补上一步原生确认，和桌面端重置/删文件夹的破坏性操作保持一致。
+      if (mode === 'replace' && !window.confirm('覆盖会清空当前的文档库，并用文件内容替换。确定继续？')) return;
       runImport(area.value);
     });
 
