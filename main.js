@@ -9,6 +9,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Store } = require('./src/store');
+const { sanitizeLibrary } = require('./src/store');
+const transfer = require('./src/transfer');
 const { Downloads } = require('./src/downloads');
 const { Vault } = require('./src/vault');
 const { resetDataDir, listTargets } = require('./src/reset');
@@ -427,6 +429,7 @@ function registerSessionIpc() {
   });
 }
 
+// ---------- IPC ----------
 function registerIpc() {
   const snapshot = () => store.snapshot();
 
@@ -512,6 +515,56 @@ function registerIpc() {
     if (fs.existsSync(store.file)) shell.showItemInFolder(store.file);
     else shell.openPath(DATA_DIR);
     return true;
+  });
+
+  // ---------- 加密导出 / 导入（U 盘多端同步） ----------
+  handle('data:export-encrypted', async ({ passphrase } = {}) => {
+    transfer.assertPassphrase(passphrase);
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const { canceled, filePath } = await dialog.showSaveDialog(win || undefined, {
+      title: '加密导出文档库',
+      defaultPath: path.join(app.getPath('downloads'), transfer.exportFilename()),
+      filters: [{ name: '文档库加密备份', extensions: ['dve'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    });
+    if (canceled || !filePath) return { canceled: true };
+    const blob = transfer.encryptLibrary(store.exportPayload(), passphrase);
+    await fs.promises.writeFile(filePath, blob, { mode: 0o600 });
+    return {
+      canceled: false,
+      path: filePath,
+      docs: store.data.docs.length,
+      folders: store.data.folders.length,
+      size: blob.length,
+    };
+  });
+
+  handle('data:import-encrypted', async ({ passphrase, mode } = {}) => {
+    transfer.assertPassphrase(passphrase);
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const { canceled, filePaths } = await dialog.showOpenDialog(win || undefined, {
+      title: '导入加密备份',
+      properties: ['openFile'],
+      filters: [{ name: '文档库加密备份', extensions: ['dve'] }],
+    });
+    if (canceled || !filePaths || !filePaths.length) return { canceled: true };
+    const blob = await fs.promises.readFile(filePaths[0]);
+    const payload = transfer.decryptExport(blob, passphrase);
+    const incoming = sanitizeLibrary(payload.library);
+    if (mode === 'overwrite') {
+      store.data = incoming;
+      store.save();
+      return {
+        canceled: false,
+        mode: 'overwrite',
+        library: store.snapshot(),
+        stats: { foldersAdded: incoming.folders.length, docsAdded: incoming.docs.length, docsSkipped: 0 },
+      };
+    }
+    const merged = transfer.mergeLibraries(store.data, incoming);
+    store.data = merged.library;
+    store.save();
+    return { canceled: false, mode: 'merge', library: store.snapshot(), stats: merged.stats };
   });
 
   // ---------- 下载 ----------
@@ -955,6 +1008,8 @@ function setupMenu() {
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => sendMenuAction('reveal-data'),
         },
+        { label: '加密导出…', click: () => sendMenuAction('export-encrypted') },
+        { label: '导入加密备份…', click: () => sendMenuAction('import-encrypted') },
         { type: 'separator' },
         { label: '重置…', click: () => sendMenuAction('reset') },
         ...(isMac ? [] : [{ type: 'separator' }, { role: 'quit', label: '退出' }]),

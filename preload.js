@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld('api', {
   vaultResetTargets: () => call('vault:reset-targets'),
   vaultReset: (payload) => call('vault:reset', payload),
 
+  // 加密导出 / 导入（U 盘多端同步）
+  exportEncrypted: (passphrase) => call('data:export-encrypted', { passphrase }),
+  importEncrypted: (passphrase, mode) => call('data:import-encrypted', { passphrase, mode }),
+
   // 主进程通知：网页里的 window.open 已被拦截，改为应用内新标签
   onOpenTab: (callback) => {
     ipcRenderer.on('open-tab', (_event, payload) => callback(payload && payload.url));

@@ -501,6 +501,8 @@
           label: '文件',
           actions: [
             { label: '打开数据文件位置', onClick: () => window.api.revealDataFile().catch((err) => toast(err.message, true)) },
+            { label: '加密导出…', hint: '导出为带口令的 .dve 文件', onClick: exportEncryptedDialog },
+            { label: '导入加密备份…', hint: '从 .dve 文件合并或覆盖', onClick: importEncryptedDialog },
             { separator: true },
             { label: '重置…', hint: '清空文档库并恢复出厂状态', onClick: resetDialog },
           ],
@@ -1786,6 +1788,126 @@
     openModal(form);
   }
 
+  // ==================== 加密导出 / 导入（U 盘多端同步） ====================
+
+  function exportEncryptedDialog() {
+    const passInput = el('input', {
+      type: 'password',
+      placeholder: '导出口令（至少 8 位）',
+      autocomplete: 'off',
+      'data-autofocus': true,
+    });
+    const passInput2 = el('input', { type: 'password', placeholder: '再输入一次', autocomplete: 'off' });
+    const errorText = el('p', { class: 'error', hidden: true });
+    const submit = el('button', { class: 'btn-primary', type: 'submit', text: '选择位置并导出' });
+
+    const form = el('form', { class: 'modal-form' }, [
+      el('h2', { text: '加密导出' }),
+      el('p', {
+        class: 'modal-desc',
+        text: '把整个文档库（文件夹、标签、星标、备注）导出成一个带口令的 .dve 文件。文件可以放 U 盘带到别的电脑导入；没有口令打不开。',
+      }),
+      el('div', { class: 'field' }, [el('label', { text: '导出口令' }), passInput]),
+      el('div', { class: 'field' }, [el('label', { text: '确认口令' }), passInput2]),
+      el('p', { class: 'hint', text: '口令只用于加密文件，不会保存；忘记口令将无法导入这份备份。' }),
+      errorText,
+      el('div', { class: 'modal-actions' }, [
+        el('button', { class: 'btn-ghost', type: 'button', text: '取消', onclick: closeModal }),
+        submit,
+      ]),
+    ]);
+
+    const showError = (message) => {
+      errorText.textContent = message;
+      errorText.hidden = !message;
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const passphrase = passInput.value;
+      if (passphrase.length < 8) return showError('口令至少 8 位');
+      if (passphrase !== passInput2.value) return showError('两次输入的口令不一致');
+      submit.disabled = true;
+      showError('');
+      try {
+        const result = await window.api.exportEncrypted(passphrase);
+        if (result.canceled) {
+          submit.disabled = false;
+          return;
+        }
+        closeModal();
+        const name = result.path.split(/[\\/]/).pop();
+        toast(`已加密导出 ${result.docs} 条文档 → ${name}`);
+      } catch (err) {
+        showError(err.message);
+        submit.disabled = false;
+      }
+    });
+    openModal(form);
+  }
+
+  function importEncryptedDialog() {
+    const passInput = el('input', {
+      type: 'password',
+      placeholder: '导出口令',
+      autocomplete: 'off',
+      'data-autofocus': true,
+    });
+    const modeMerge = el('input', { type: 'radio', name: 'importMode', value: 'merge', checked: true });
+    const modeOverwrite = el('input', { type: 'radio', name: 'importMode', value: 'overwrite' });
+    const errorText = el('p', { class: 'error', hidden: true });
+    const submit = el('button', { class: 'btn-primary', type: 'submit', text: '选择文件并导入' });
+
+    const form = el('form', { class: 'modal-form' }, [
+      el('h2', { text: '导入加密备份' }),
+      el('p', { class: 'modal-desc', text: '选择从另一台设备导出的 .dve 文件，输入同一口令后导入。' }),
+      el('div', { class: 'field' }, [el('label', { text: '导出口令' }), passInput]),
+      el('div', { class: 'field' }, [
+        el('label', { text: '导入方式' }),
+        el('label', { class: 'check-row' }, [modeMerge, el('span', { text: '合并：保留现有数据，只补充新文档/文件夹（推荐）' })]),
+        el('label', { class: 'check-row' }, [modeOverwrite, el('span', { text: '覆盖：用文件内容替换当前整个文档库' })]),
+      ]),
+      errorText,
+      el('div', { class: 'modal-actions' }, [
+        el('button', { class: 'btn-ghost', type: 'button', text: '取消', onclick: closeModal }),
+        submit,
+      ]),
+    ]);
+
+    const showError = (message) => {
+      errorText.textContent = message;
+      errorText.hidden = !message;
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (passInput.value.length < 8) return showError('请输入至少 8 位的导出口令');
+      const mode = modeOverwrite.checked ? 'overwrite' : 'merge';
+      if (mode === 'overwrite' && !window.confirm('覆盖会替换当前整个文档库，确定继续？')) return undefined;
+      submit.disabled = true;
+      showError('');
+      try {
+        const result = await window.api.importEncrypted(passInput.value, mode);
+        if (result.canceled) {
+          submit.disabled = false;
+          return;
+        }
+        absorb(result.library);
+        closeModal();
+        const { docsAdded, foldersAdded, docsSkipped } = result.stats;
+        toast(
+          mode === 'overwrite'
+            ? `已覆盖导入 ${result.library.docs.length} 条文档`
+            : `合并完成：新增 ${docsAdded} 条文档、${foldersAdded} 个文件夹${docsSkipped ? `，跳过重复 ${docsSkipped} 条` : ''}`
+        );
+      } catch (err) {
+        showError(err.message);
+        submit.disabled = false;
+      }
+    });
+    openModal(form);
+  }
+
   // ==================== 对外接口 ====================
   async function init(userHooks = {}) {
     hooks = userHooks;
@@ -1811,10 +1933,11 @@
     toast,
     addDocDialog,
     newFolderDialog,
-    vaultTokensDialog,
+    exportEncryptedDialog,
+    importEncryptedDialog,    resetDialog,
     vaultEnrollWizard,
+    vaultTokensDialog,
     vaultDisableDialog,
-    resetDialog,
     aboutDialog,
     focusSearch: () => {
       dom.search.focus();

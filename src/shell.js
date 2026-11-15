@@ -795,6 +795,10 @@
         window.api.revealDataFile().catch((err) => Library.toast(err.message, true));
       } else if (id === 'reset') {
         Library.resetDialog();
+      } else if (id === 'export-encrypted') {
+        Library.exportEncryptedDialog();
+      } else if (id === 'import-encrypted') {
+        Library.importEncryptedDialog();
       } else if (id === 'vault-enroll') {
         Library.vaultEnrollWizard();
       } else if (id === 'vault-tokens') {
