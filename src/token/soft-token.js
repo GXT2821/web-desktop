@@ -51,31 +51,20 @@ function firstTokenPath(dir) {
   const folder = tokenFolder(dir);
   return folder ? path.join(folder, TOKEN_FILENAME) : TOKEN_FILENAME;
 }
-
-// 找空位：mac/DocVault.key → mac-2/DocVault.key → mac-3/…
-function tokenRelativePath(dir) {
-  const first = firstTokenPath(dir);
-  if (!fs.existsSync(path.join(dir, first))) return first;
-  const folder = tokenFolder(dir) || platformTag();
-  let index = 2;
-  let candidate = path.join(`${folder}-${index}`, TOKEN_FILENAME);
-  while (fs.existsSync(path.join(dir, candidate))) {
-    index += 1;
-    candidate = path.join(`${folder}-${index}`, TOKEN_FILENAME);
-  }
-  return candidate;
-}
 const TOKEN_TYPE = 'docvault-soft-token';
 const MAX_ATTEMPTS = 8;
+// 新建令牌要求至少 6 位（允许字母/符号，本质上是口令）；
+// 校验旧令牌时放宽到 4 位——历史上就有 4 位 PIN 的令牌，不能把人家锁在门外。
 const PIN_MIN = 4;
-const PIN_MAX = 16;
+const PIN_MIN_NEW = 6;
+const PIN_MAX = 64;
 // scrypt 参数：解锁一次约几十毫秒，暴力猜 PIN 的成本被抬高
 const KDF = { alg: 'scrypt', N: 16384, r: 8, p: 1 };
 const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 
-function assertPin(pin) {
-  if (typeof pin !== 'string' || pin.length < PIN_MIN || pin.length > PIN_MAX) {
-    throw new Error(`PIN 需要 ${PIN_MIN}–${PIN_MAX} 位`);
+function assertPin(pin, min = PIN_MIN) {
+  if (typeof pin !== 'string' || pin.length < min || pin.length > PIN_MAX) {
+    throw new Error(`PIN / 口令需要 ${min}–${PIN_MAX} 位`);
   }
 }
 
@@ -126,18 +115,16 @@ function readTokenFile(file) {
 async function createToken(dir, pin, options = {}) {
   const pinFree = options.pinFree === true;
   const force = options.force === true;
-  if (!pinFree) assertPin(pin);
+  if (!pinFree) assertPin(pin, PIN_MIN_NEW);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
     throw new Error('令牌目录不存在，请先把 U 盘插好');
   }
-  const allowMultiple = options.allowMultiple === true;
   const firstPath = path.join(dir, firstTokenPath(dir));
-  if (!force && !allowMultiple && fs.existsSync(firstPath)) {
+  if (!force && fs.existsSync(firstPath)) {
     throw new Error('这个位置已经有一枚令牌。继续会覆盖它，请确认后再试');
   }
-  // allowMultiple：同一个目录里再放一枚（按平台命名，例如 DocVault-mac.key），
-  // 用于"每套系统一枚令牌"共用同一个 U 盘。force 覆盖时仍然写 DocVault.key。
-  const relative = force ? TOKEN_FILENAME : allowMultiple ? tokenRelativePath(dir) : firstTokenPath(dir);
+  // force 覆盖时写回本系统目录（win/DocVault.key），避免覆盖到别的系统的令牌
+  const relative = firstTokenPath(dir);
   const file = path.join(dir, relative);
   if (!force) fs.mkdirSync(path.dirname(file), { recursive: true });
   // 绑定到"这张 U 盘"的卷序列号；识别不到时退化为不绑定（保持可用）
@@ -174,7 +161,17 @@ async function createToken(dir, pin, options = {}) {
   }
   secret.fill(0);
   writeJsonAtomic(file, token);
+  invalidateDiscovery();
   return { path: file, serial, pinFree, drive: driveBinding };
+}
+
+// 令牌文件刚变化，发现层缓存必须失效（延迟 require 避免循环依赖）
+function invalidateDiscovery() {
+  try {
+    require('./provider').invalidate();
+  } catch {
+    /* 单测里可能只加载了 soft-token，忽略 */
+  }
 }
 
 // 只读元信息（不碰 secret），用于发现/展示
@@ -290,6 +287,7 @@ function bindDrive(file) {
     if (!info || !info.volumeSerial) return null;
     raw.drive = { volumeSerial: info.volumeSerial };
     writeJsonAtomic(file, raw);
+    invalidateDiscovery();
     return info.volumeSerial;
   } catch {
     return null;
@@ -299,7 +297,6 @@ function bindDrive(file) {
 module.exports = {
   TOKEN_FILENAME,
   TOKEN_PATTERN,
-  tokenRelativePath,
   TOKEN_TYPE,
   MAX_ATTEMPTS,
   createToken,

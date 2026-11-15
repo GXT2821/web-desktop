@@ -94,4 +94,10 @@ function identify(file) {
   return null;
 }
 
-module.exports = { identify, mountRoot, parseVolOutput, parseDiskutilUuid };
+// 当前平台是否"应该"能读到卷标识。支持却读不到时，调用方拒绝启用保护，
+// 而不是悄悄退化成"任何 U 盘都认"。
+function isSupported() {
+  return process.platform === 'win32' || process.platform === 'darwin' || process.platform === 'linux';
+}
+
+module.exports = { identify, mountRoot, isSupported, parseVolOutput, parseDiskutilUuid };

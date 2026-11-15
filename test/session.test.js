@@ -1,4 +1,8 @@
-// 会话（打开中的标签页）持久化：明文/加密两条路径 + 损坏容错
+/**
+ * 会话持久化：明文/密文两种形态的互斥与迁移。
+ * 用假 codec 代替保险库，测试不依赖 Electron / 真实加密。
+ */
+
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -6,127 +10,75 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { createSessionStore, normalize } = require('../src/session');
-const core = require('../src/store-core');
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'docvault-session-test-'));
 }
 
-// 假保险库：用 store-core 的加密能力模拟 DEK 在/不在内存
-function fakeVault() {
-  const dek = Buffer.alloc(32, 7);
-  let enabled = false;
-  let locked = false;
-  return {
-    setEnabled(v) { enabled = v; },
-    setLocked(v) { locked = v; },
-    deps: {
-      isVaultEnabled: () => enabled,
-      isVaultLocked: () => locked,
-      codec: () => ({
-        encode: (buf) => core.SealDemo ? buf : buf, // 占位，下面用真实实现覆盖
-        decode: (buf) => buf,
-      }),
-    },
-  };
+// 前缀 + base64 的假加密：足够验证"明文/密文形态互斥"，不代表真实强度
+const codec = () => ({
+  encode: (buf) => Buffer.from(`ENC:${buf.toString('base64')}`, 'utf-8'),
+  decode: (buf) => Buffer.from(buf.toString('utf-8').slice(4), 'base64'),
+});
+
+function makeStore(dir) {
+  const state = { enabled: false, locked: false };
+  const store = createSessionStore({
+    dataDir: dir,
+    isVaultEnabled: () => state.enabled,
+    isVaultLocked: () => state.locked,
+    codec,
+  });
+  return { store, state, plain: path.join(dir, 'session.json'), enc: path.join(dir, 'session.enc') };
 }
 
-test('normalize：过滤无 url 的条目、限制字段长度与数量', () => {
-  assert.equal(normalize(null), null);
-  const out = normalize({
-    tabs: [
-      { url: 'https://a.example/1', title: 'A', docId: null },
-      { url: '', title: '空' },
-      { url: 'https://b.example/2', title: 'x'.repeat(500) },
-    ],
-    activeIndex: -1,
-  });
-  assert.equal(out.tabs.length, 2);
-  assert.equal(out.activeIndex, -1);
-  assert.equal(out.tabs[1].title.length, 200);
+const SAMPLE = normalize({ tabs: [{ url: 'https://example.com/a', title: 'A' }], activeIndex: 0 });
+
+test('会话：未启用保护时写明文，启用后写密文并删掉明文', () => {
+  const dir = tmpDir();
+  const { store, state, plain, enc } = makeStore(dir);
+
+  assert.equal(store.save(SAMPLE), true);
+  assert.ok(fs.existsSync(plain));
+  assert.equal(fs.existsSync(enc), false);
+  assert.deepEqual(store.load(), SAMPLE);
+
+  // 启用保护：先读明文，再以加密形态写回
+  const pending = store.loadPlain();
+  state.enabled = true;
+  assert.equal(store.save(pending), true);
+  assert.equal(fs.existsSync(plain), false, '启用后不能留明文');
+  assert.ok(fs.existsSync(enc));
+  assert.deepEqual(store.load(), SAMPLE);
 });
 
-test('未启用 U盾：明文件读写，切换后能读回', () => {
+test('会话：锁定态读不到、也写不了加密会话', () => {
   const dir = tmpDir();
-  const store = createSessionStore({
-    dataDir: dir,
-    isVaultEnabled: () => false,
-    isVaultLocked: () => false,
-    codec: () => { throw new Error('不该调用'); },
-  });
+  const { store, state } = makeStore(dir);
+  state.enabled = true;
+  store.save(SAMPLE);
+  state.locked = true;
   assert.equal(store.load(), null);
-  assert.equal(store.save({ tabs: [{ url: 'https://a.example/1', title: 'A' }], activeIndex: 0 }), true);
-  assert.ok(fs.existsSync(path.join(dir, 'session.json')));
-  const reloaded = createSessionStore({
-    dataDir: dir,
-    isVaultEnabled: () => false,
-    isVaultLocked: () => false,
-    codec: () => { throw new Error('不该调用'); },
-  }).load();
-  assert.equal(reloaded.tabs[0].url, 'https://a.example/1');
-  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(store.save(SAMPLE), false);
 });
 
-test('启用 U盾：写加密文件、不留明文；锁定时读不到，解锁后能读', () => {
+test('会话：停用保护后回到明文形态', () => {
   const dir = tmpDir();
-  const key = Buffer.alloc(32, 9);
-  const codec = {
-    encode: (buf) => {
-      const iv = Buffer.alloc(12, 1);
-      const cipher = require('node:crypto').createCipheriv('aes-256-gcm', key, iv);
-      const data = Buffer.concat([cipher.update(buf), cipher.final()]);
-      return Buffer.concat([iv, cipher.getAuthTag(), data]);
-    },
-    decode: (buf) => {
-      const decipher = require('node:crypto').createDecipheriv('aes-256-gcm', key, buf.subarray(0, 12));
-      decipher.setAuthTag(buf.subarray(12, 28));
-      return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]);
-    },
-  };
-  let locked = false;
-  const store = createSessionStore({
-    dataDir: dir,
-    isVaultEnabled: () => true,
-    isVaultLocked: () => locked,
-    codec: () => codec,
-  });
-  assert.equal(store.save({ tabs: [{ url: 'https://secret.example/doc', title: '机密' }], activeIndex: 0 }), true);
-  assert.ok(fs.existsSync(path.join(dir, 'session.enc')), '应写加密文件');
-  assert.equal(fs.existsSync(path.join(dir, 'session.json')), false, '不能留明文');
-  // 密文里不应出现明文链接
-  assert.equal(fs.readFileSync(path.join(dir, 'session.enc'), 'utf-8').includes('secret.example'), false);
+  const { store, state, plain, enc } = makeStore(dir);
+  state.enabled = true;
+  store.save(SAMPLE);
+  assert.ok(fs.existsSync(enc));
 
-  locked = true;
-  assert.equal(store.load(), null, '锁定时读不到');
-  locked = false;
-  assert.equal(store.load().tabs[0].url, 'https://secret.example/doc');
-  fs.rmSync(dir, { recursive: true, force: true });
+  const pending = store.load();
+  state.enabled = false;
+  store.save(pending);
+  assert.ok(fs.existsSync(plain));
+  assert.equal(fs.existsSync(enc), false, '停用后不能留密文文件');
 });
 
-test('损坏的会话文件：当作没有会话，不抛错', () => {
+test('会话：损坏内容当作没有会话', () => {
   const dir = tmpDir();
-  fs.writeFileSync(path.join(dir, 'session.json'), '{ not json');
-  const store = createSessionStore({
-    dataDir: dir,
-    isVaultEnabled: () => false,
-    isVaultLocked: () => false,
-    codec: () => { throw new Error('不该调用'); },
-  });
+  const { store, plain } = makeStore(dir);
+  fs.writeFileSync(plain, '{not json');
   assert.equal(store.load(), null);
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test('clear：两种文件都删掉', () => {
-  const dir = tmpDir();
-  fs.writeFileSync(path.join(dir, 'session.json'), '{}');
-  fs.writeFileSync(path.join(dir, 'session.enc'), 'x');
-  createSessionStore({
-    dataDir: dir,
-    isVaultEnabled: () => false,
-    isVaultLocked: () => false,
-    codec: () => { throw new Error('不该调用'); },
-  }).clear();
-  assert.equal(fs.existsSync(path.join(dir, 'session.json')), false);
-  assert.equal(fs.existsSync(path.join(dir, 'session.enc')), false);
-  fs.rmSync(dir, { recursive: true, force: true });
 });

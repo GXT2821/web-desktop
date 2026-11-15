@@ -1377,7 +1377,7 @@
       errorText.hidden = !message;
     };
 
-    const pinInput = el('input', { type: 'password', maxlength: '16', placeholder: '这枚令牌的 PIN（免 PIN 令牌留空）' });
+    const pinInput = el('input', { type: 'password', maxlength: '64', placeholder: '这枚令牌的 PIN（免 PIN 令牌留空）' });
     const freeHint = el('span', { class: 'token-sub', text: '' });
 
     const selectRow = (token) => {
@@ -1532,8 +1532,8 @@
     function stepPin() {
       const isNew = Boolean(selected.createDir);
       const alreadyFree = selected.pinFree === true;
-      const pinInput = el('input', { type: 'password', maxlength: '16', placeholder: '4–16 位', autocomplete: 'off', 'data-autofocus': true });
-      const pinInput2 = el('input', { type: 'password', maxlength: '16', placeholder: '再输入一次', autocomplete: 'off' });
+      const pinInput = el('input', { type: 'password', maxlength: '64', placeholder: '至少 6 位，可用字母/数字', autocomplete: 'off', 'data-autofocus': true });
+      const pinInput2 = el('input', { type: 'password', maxlength: '64', placeholder: '再输入一次', autocomplete: 'off' });
       const pinFields = el('div', {}, [
         el('div', { class: 'field' }, [el('label', { text: 'PIN' }), pinInput]),
         isNew ? el('div', { class: 'field' }, [el('label', { text: '确认 PIN' }), pinInput2]) : null,
@@ -1585,7 +1585,10 @@
         const free = alreadyFree || (isNew && freeCheck.checked);
         const pin = pinInput.value;
         if (!free) {
-          if (pin.length < 4 || pin.length > 16) return showError('PIN 需要 4–16 位');
+          const min = isNew ? 6 : 4;
+          if (pin.length < min || pin.length > 64) {
+            return showError(isNew ? 'PIN / 口令至少 6 位（可用字母、数字、符号）' : 'PIN / 口令需要 4–64 位');
+          }
           if (isNew && pin !== pinInput2.value) return showError('两次输入的 PIN 不一致');
         }
         const submit = form.querySelector('button[type="submit"]');
@@ -1671,7 +1674,7 @@
   // 停用保护：确认后还原明文（免 PIN 令牌不需要 PIN）
   function vaultDisableDialog() {
     const pinFree = Boolean(state.info && state.info.vault && state.info.vault.pinFree);
-    const pinInput = el('input', { type: 'password', maxlength: '16', placeholder: '令牌 PIN', autocomplete: 'off', 'data-autofocus': true });
+    const pinInput = el('input', { type: 'password', maxlength: '64', placeholder: '令牌 PIN', autocomplete: 'off', 'data-autofocus': true });
     const errorText = el('p', { class: 'error', hidden: true });
     const form = el('form', { class: 'modal-form' }, [
       el('h2', { text: '停用 U盾保护' }),

@@ -61,8 +61,8 @@
               id="pinInput"
               type="password"
               inputmode="numeric"
-              maxlength="16"
-              placeholder="令牌 PIN"
+              maxlength="64"
+              placeholder="令牌 PIN / 口令"
               autocomplete="off"
               disabled
             />
@@ -101,8 +101,8 @@
           <div class="token-list" id="bindTokenList"></div>
           <button class="btn-ghost" id="bindCreateBtn" type="button">在新位置创建令牌…</button>
           <form id="bindForm" autocomplete="off" hidden>
-            <input id="bindPin" type="password" maxlength="16" placeholder="新令牌 PIN（4–16 位）" autocomplete="off" />
-            <input id="bindPin2" type="password" maxlength="16" placeholder="再输入一次" autocomplete="off" />
+            <input id="bindPin" type="password" maxlength="64" placeholder="新令牌 PIN / 口令（至少 6 位）" autocomplete="off" />
+            <input id="bindPin2" type="password" maxlength="64" placeholder="再输入一次" autocomplete="off" />
             <label class="check-row">
               <input type="checkbox" id="bindFree" />
               <span>免 PIN：插上这枚令牌即自动解锁</span>

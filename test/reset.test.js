@@ -91,3 +91,36 @@ test('重置：目录不存在不抛错', () => {
   const result = resetDataDir(dir);
   assert.deepEqual(result.removed, []);
 });
+
+test('重置：删除令牌前校验序列号，盘符被复用时不会误删', async () => {
+  const soft = require('../src/token/soft-token');
+  const dir = tmpDir();
+  const tokenDir = tmpDir();
+  fs.writeFileSync(path.join(dir, 'library.enc'), 'x');
+  const token = await soft.createToken(tokenDir, '123456');
+  fs.writeFileSync(path.join(dir, 'library.enc'), 'x');
+
+  // 序列号对不上：跳过删除并报告
+  const mismatch = resetDataDir(dir, {
+    deleteToken: true,
+    tokenPath: token.path,
+    expectedSerial: 'deadbeefdeadbeef',
+    keepBackup: false,
+  });
+  assert.ok(fs.existsSync(token.path), '不匹配时令牌必须保留');
+  assert.ok(mismatch.failed.some((item) => /序列号/.test(item.error)));
+
+  // 序列号正确：正常删除
+  fs.writeFileSync(path.join(dir, 'library.enc'), 'x');
+  const ok = resetDataDir(dir, {
+    deleteToken: true,
+    tokenPath: token.path,
+    expectedSerial: token.serial,
+    keepBackup: false,
+  });
+  assert.equal(fs.existsSync(token.path), false);
+  assert.ok(ok.removed.includes('DocVault.key'));
+
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(tokenDir, { recursive: true, force: true });
+});

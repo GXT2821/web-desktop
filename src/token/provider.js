@@ -85,19 +85,31 @@ function scanRoot(root) {
   return scanTree(root, MAX_DEPTH);
 }
 
+// 发现结果短期缓存：锁页 400ms 轮询 + watcher 500ms 会重复触发扫描，
+// 挂载点扫描在多盘/大目录机器上并不便宜。600ms 内复用结果，
+// 创建/绑定令牌时主动 invalidate，保证"刚插上/刚建好"能立刻被发现。
+const CACHE_TTL_MS = 600;
+let cache = { at: 0, tokens: [] };
+
+function invalidate() {
+  cache = { at: 0, tokens: [] };
+}
+
 // 返回当前插着的所有令牌（按序列号去重，同一枚令牌出现在两个挂载点只算一次）
-function discover() {
+function discover({ fresh = false } = {}) {
+  if (!fresh && Date.now() - cache.at < CACHE_TTL_MS) return cache.tokens.slice();
   const bySerial = new Map();
   for (const root of candidateRoots()) {
     for (const info of scanRoot(root)) {
       if (!bySerial.has(info.serial)) bySerial.set(info.serial, info);
     }
   }
-  return [...bySerial.values()];
+  cache = { at: Date.now(), tokens: [...bySerial.values()] };
+  return cache.tokens.slice();
 }
 
 function findBySerial(serial) {
   return discover().find((token) => token.serial === serial) || null;
 }
 
-module.exports = { candidateRoots, discover, findBySerial };
+module.exports = { candidateRoots, discover, findBySerial, invalidate };

@@ -12,12 +12,11 @@ const call = async (channel, payload) => {
 
 contextBridge.exposeInMainWorld('lockApi', {
   status: () => call('vault:status'),
-  detect: () => call('vault:detect'),
+  detect: (options) => call('vault:detect', options || {}),
   unlock: (pin, tokenPath) => call('vault:unlock', { pin, tokenPath }),
   recover: (code) => call('vault:recover', { code }),
   rebind: (payload) => call('vault:rebind', payload),
   finish: () => call('vault:finish'),
-  createToken: (dir, pin) => call('vault:create-token', { dir, pin }),
   pickDir: () => call('vault:pick-dir'),
 
   // 主进程推送：密钥已读取 / 令牌被拔走 / 读取失败

@@ -209,6 +209,12 @@
         dom.unlockBtn.disabled = true;
         return;
       }
+      // 恢复码已通过、但还没绑定新令牌（例如 macOS 关掉锁定窗口再点 Dock 重开）：
+      // 直接回到"绑定新令牌"这一步，避免卡在无法解锁的死角。
+      if (status.recovery) {
+        await showRecoveryBind();
+        return;
+      }
       boundPresent = status.present === true;
       if (boundPresent && status.pinFree) {
         // 免 PIN：插上就开始读密钥动画，读完后由用户点「确定」
@@ -244,6 +250,21 @@
     } catch (err) {
       setTokenState('warn', `检测失败：${err.message}`);
     }
+  }
+
+  // 恢复态重开窗口：直接显示"绑定新令牌"步骤
+  let recoveryViewShown = false;
+  async function showRecoveryBind() {
+    if (recoveryViewShown) return;
+    recoveryViewShown = true;
+    mode = 'recovery'; // 停止轮询，恢复流程有自己的按钮
+    dom.unlockView.hidden = true;
+    dom.recoverView.hidden = false;
+    dom.recoverForm.hidden = true;
+    dom.codeInput.disabled = true;
+    dom.bindStep.hidden = false;
+    dom.backToUnlock.hidden = true;
+    await renderBindTokens();
   }
 
   // 主进程推送：密钥已读 / 令牌被拔 / 读取失败
@@ -332,7 +353,7 @@
   });
 
   async function renderBindTokens() {
-    const tokens = await window.lockApi.detect();
+    const tokens = await window.lockApi.detect({ fresh: true });
     dom.bindTokenList.textContent = '';
     if (!tokens.length) {
       const empty = document.createElement('p');
@@ -390,8 +411,10 @@
     const free = dom.bindFree.checked;
     const pin = dom.bindPin.value;
     if (!free) {
-      if (pin.length < 4 || pin.length > 16) {
-        showError(dom.bindError, 'PIN 需要 4–16 位');
+      // 新建令牌要求 6 位起；绑定已有令牌沿用旧规则（可能是 4 位 PIN）
+      const min = bindTarget.createDir ? 6 : 4;
+      if (pin.length < min || pin.length > 64) {
+        showError(dom.bindError, bindTarget.createDir ? 'PIN / 口令至少 6 位（可用字母、数字、符号）' : 'PIN / 口令需要 4–64 位');
         return;
       }
       if (pin !== dom.bindPin2.value) {

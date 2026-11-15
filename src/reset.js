@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const soft = require('./token/soft-token');
 
 // 文档库 / 保险库 / 下载记录，以及原子写留下的临时文件
 const APP_FILES = [
@@ -19,6 +20,7 @@ const APP_FILES = [
   'library.enc.bak',
   'library.enc.tmp',
   'vault.json',
+  'vault.json.bak',
   'vault.json.tmp',
   'downloads.json',
   // downloads.js 的原子写同样会留 .tmp：漏了它，重置后残留文件会被下次启动读回
@@ -44,9 +46,14 @@ function listTargets(dataDir) {
 }
 
 // deleteToken：是否连 U 盘上的令牌文件一起删（用户明确勾选才做）
+// expectedSerial：本库绑定的令牌序列号。盘符可能被复用，删除前必须确认
+//                 "这个路径上的令牌确实是本库的"，否则会误删别人/别的库的令牌。
 // keepBackup：重置前先把要删的文件复制到 reset-backup-<时间>/，
 // 避免"点错一次，数据直接没了"（这个目录不会被下次重置删掉）。
-function resetDataDir(dataDir, { deleteToken = false, tokenPath = null, keepBackup = true } = {}) {
+function resetDataDir(
+  dataDir,
+  { deleteToken = false, tokenPath = null, expectedSerial = null, keepBackup = true } = {}
+) {
   const removed = [];
   const failed = [];
   const targets = listTargets(dataDir);
@@ -80,14 +87,20 @@ function resetDataDir(dataDir, { deleteToken = false, tokenPath = null, keepBack
 
   if (deleteToken && tokenPath) {
     const tokenFile = path.resolve(tokenPath);
-    for (const file of [tokenFile, `${tokenFile}.tmp`]) {
-      try {
-        if (fs.existsSync(file)) {
-          fs.rmSync(file, { force: true });
-          removed.push(path.basename(file));
+    const info = soft.readTokenInfo(tokenFile);
+    if (expectedSerial && (!info || info.serial !== expectedSerial)) {
+      // 路径上不是本库的令牌（盘符被别的盘复用）：宁可少删，也不能误删
+      failed.push({ name: path.basename(tokenFile), error: '令牌序列号与当前库不匹配，已跳过删除' });
+    } else {
+      for (const file of [tokenFile, `${tokenFile}.tmp`]) {
+        try {
+          if (fs.existsSync(file)) {
+            fs.rmSync(file, { force: true });
+            removed.push(path.basename(file));
+          }
+        } catch (err) {
+          failed.push({ name: path.basename(file), error: err.message });
         }
-      } catch (err) {
-        failed.push({ name: path.basename(file), error: err.message });
       }
     }
   }

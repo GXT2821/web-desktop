@@ -13,6 +13,7 @@ const { Downloads } = require('./src/downloads');
 const { Vault } = require('./src/vault');
 const { resetDataDir, listTargets } = require('./src/reset');
 const { createSessionStore } = require('./src/session');
+const { isIdleLock } = require('./src/idle');
 const softToken = require('./src/token/soft-token');
 const tokenProvider = require('./src/token/provider');
 
@@ -53,7 +54,6 @@ let mainWindow = null;
 let sessionTabs = null;
 let sessionStore = null;
 let lockWindow = null;
-let lastActivity = Date.now();
 const IDLE_MINUTES = Math.max(1, Number(process.env.DOCVAULT_IDLE_MINUTES) || 10);
 
 // 打开数据层（仅在解锁状态调用）：按保护开关选择明文/加密文件
@@ -292,12 +292,12 @@ function createMainWindow() {
 
   win.webContents.on('did-attach-webview', (event, guest) => hardenGuest(win, guest));
 
-  // 任何键鼠输入都算"活跃"，推迟空闲自动锁定
-  win.webContents.on('before-input-event', () => {
-    lastActivity = Date.now();
-  });
-  win.on('focus', () => {
-    lastActivity = Date.now();
+  // macOS 关掉窗口后应用还活着；不能让它"关窗=绕过解锁"，关窗即锁定。
+  // Windows/Linux 关窗即退出，交给 window-all-closed。
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+    if (app.isQuitting || process.platform !== 'darwin') return;
+    if (vault.isEnabled() && !vault.isLocked()) doLock('主窗口已关闭');
   });
 
   win.loadFile(path.join(__dirname, 'src', 'shell.html'));
@@ -362,7 +362,6 @@ function handle(channel, fn) {
     if (trustedSender(event) !== 'main' || !store || (vault.isEnabled() && vault.isLocked())) {
       return { ok: false, error: '文档库已锁定' };
     }
-    lastActivity = Date.now();
     try {
       return { ok: true, data: await fn(payload) };
     } catch (err) {
@@ -547,12 +546,21 @@ function bootUnlocked() {
 function startUnlocked() {
   // 解锁与"确定进入"是两条 IPC，理论上可能被连点；已在文档库界面时不再开第二个窗口
   if (mainWindow && !mainWindow.isDestroyed()) return;
+  // 保险库已启用但密文文件不在：绝不能当成"全新安装"建空库覆盖——
+  // 那会让用户以为数据没了，其实只是文件被移走/同步盘没同步下来。
+  if (vault.isEnabled() && !fs.existsSync(vault.encFile)) {
+    dialog.showErrorBox(
+      '加密数据文件缺失',
+      `找不到 ${vault.encFile}。\n\n请确认数据目录没有被清理，或从备份中恢复 library.enc 后再启动。`
+    );
+    app.quit();
+    return;
+  }
   pendingEnter = false;
   const result = openStore();
   mainWindow = createMainWindow();
   if (lockWindow && !lockWindow.isDestroyed()) lockWindow.destroy();
   lockWindow = null;
-  lastActivity = Date.now();
   // 解锁后重建菜单：恢复流程里可能新增/解绑过令牌，菜单上的"令牌管理（N 枚）"要跟上
   setupMenu();
 
@@ -574,6 +582,8 @@ function doLock(reason) {
   }
   vault.lock();
   store = null;
+  // 锁定态不在内存里留着"最近打开了哪些文档"——它和文档库一样属于隐私数据
+  sessionTabs = null;
   pendingEnter = false;
   if (!lockWindow || lockWindow.isDestroyed()) lockWindow = createLockWindow();
   else lockWindow.show();
@@ -631,7 +641,10 @@ async function readKeyOnly(reason) {
 function wipePlaintextLibrary() {
   let names = [];
   try {
-    names = fs.readdirSync(DATA_DIR).filter((n) => n === 'library.json' || n.startsWith('library.json.'));
+    // session.json 里是最近打开的标签页（同样是隐私数据），启用加密后不能留明文
+    names = fs.readdirSync(DATA_DIR).filter(
+      (n) => n === 'library.json' || n.startsWith('library.json.') || n === 'session.json'
+    );
   } catch {
     return;
   }
@@ -670,7 +683,7 @@ function startVaultWatchers() {
       doLock('令牌已移除');
       return;
     }
-    if (Date.now() - lastActivity > IDLE_MINUTES * 60 * 1000) {
+    if (isIdleLock(powerMonitor.getSystemIdleTime(), IDLE_MINUTES)) {
       doLock(`空闲超过 ${IDLE_MINUTES} 分钟`);
     }
   }, 500);
@@ -687,7 +700,7 @@ function registerVaultIpc() {
     idleMinutes: IDLE_MINUTES,
     ready: pendingEnter,
   }));
-  handleVault('vault:detect', () => tokenProvider.discover());
+  handleVault('vault:detect', (payload = {}) => tokenProvider.discover({ fresh: payload.fresh === true }));
   handleVault('vault:tokens', () => vault.tokenList());
   handleVault('vault:add-token', async ({ tokenPath, pin } = {}) => {
     const result = await vault.addToken({ tokenPath, pin });
@@ -709,15 +722,7 @@ function registerVaultIpc() {
     return { canceled, dir: filePaths && filePaths[0] };
   });
 
-  handleVault('vault:create-token', async ({ dir, pin, pinFree, force }) => {
-    if (!dir) throw new Error('请先选择令牌存放位置');
-    return softToken.createToken(dir, pin, {
-      pinFree: pinFree === true,
-      force: force === true,
-      // 多系统适配：同一张 U 盘已有别的系统的令牌时，另存为 DocVault-<平台>.key，不覆盖
-      allowMultiple: true,
-    });
-  });
+  // 独立建令牌 IPC 已移除：建令牌只走 enroll / rebind，避免出现"建了但没绑定"的孤儿令牌。
 
   // 启用保护（仅主窗口、尚未启用时）：绑定令牌 → 加密迁移 → 抹掉明文
   handleVault('vault:enroll', async ({ tokenPath, createDir, pin, pinFree, force }) => {
@@ -729,12 +734,14 @@ function registerVaultIpc() {
       usedPath = (await softToken.createToken(createDir, pin, {
         pinFree: free,
         force: force === true,
-        // 恢复/换绑流程允许在已有令牌的 U 盘上再放一枚（每套系统一枚）
-        allowMultiple: true,
       })).path;
     }
     if (!usedPath) throw new Error('请先选择或创建一枚令牌');
     const result = await vault.enroll({ tokenPath: usedPath, pin: free ? '' : pin, library: store.data });
+    // 会话（最近打开的标签页）也要跟着迁移：先读明文，再以上面的 DEK 写成 session.enc，
+    // 最后 wipe 掉 session.json。之前只迁了 library，明文会话会一直留到下次切标签。
+    const pendingSession = sessionStore ? sessionStore.loadPlain() : null;
+    if (pendingSession) sessionStore.save(pendingSession);
     wipePlaintextLibrary();
     openStore(); // 切换到 library.enc（load 会再校验一次密文）
     // 启用后系统菜单要立刻从"启用 U盾保护…"变成"锁定 / 令牌管理 / 停用"，
@@ -767,6 +774,7 @@ function registerVaultIpc() {
     const result = resetDataDir(DATA_DIR, {
       deleteToken: deleteToken === true,
       tokenPath: vault.tokenPath(),
+      expectedSerial: vault.tokenSerial(),
     });
     if (result.failed.length) {
       // 有文件删不掉（被占用、只读盘等）就不要重启：之前只打日志仍然 relaunch，
@@ -778,6 +786,9 @@ function registerVaultIpc() {
     }
     // 内存里的明文/密钥已无意义，直接重启回到全新状态
     setTimeout(() => {
+      // 先释放单实例锁再重启：旧进程还占着锁时新进程会直接退出，
+      // 表现就是"点重置后应用消失了"。
+      app.releaseSingleInstanceLock();
       app.relaunch();
       app.exit(0);
     }, 300);
@@ -788,6 +799,8 @@ function registerVaultIpc() {
   // 顺序不能反：之前先删密文再写 library.json，写失败（磁盘满/只读）时
   // 数据只剩内存一份，退出即丢。现在任何一步失败密文都还在，可重试。
   handleVault('vault:disable', async ({ pin }) => {
+    // 停用前先把加密会话读出来（解锁态才读得到），停用后以明文写回
+    const pendingSession = sessionStore ? sessionStore.load() : null;
     const plain = await vault.disable({
       pin,
       persist: async (library) => {
@@ -808,6 +821,10 @@ function registerVaultIpc() {
       },
     });
     setupMenu();
+    if (sessionStore) {
+      if (pendingSession) sessionStore.save(pendingSession); // 现在未启用保护 → 写 session.json 并删 session.enc
+      else sessionStore.clear();
+    }
     try {
       for (const name of fs.readdirSync(DATA_DIR)) {
         if (name.startsWith('library.enc.corrupt-')) fs.rmSync(path.join(DATA_DIR, name), { force: true });
@@ -835,8 +852,6 @@ function registerVaultIpc() {
       usedPath = (await softToken.createToken(createDir, pin, {
         pinFree: free,
         force: force === true,
-        // 恢复/换绑流程允许在已有令牌的 U 盘上再放一枚（每套系统一枚）
-        allowMultiple: true,
       })).path;
     }
     if (!usedPath) throw new Error('请先选择或创建一枚令牌');
@@ -845,8 +860,13 @@ function registerVaultIpc() {
 
   handleVault('vault:finish', () => {
     // 允许进入的两种情况：免 PIN 令牌已读密钥等待确认，或恢复码流程已完成换绑。
-    // 两者都要求保险库处于 unlocked；recovery 态（还没绑新令牌）不允许进入。
     if (vault.isLocked()) throw new Error('尚未完成解锁');
+    // 读密钥到点「确定」之间可能把 U 盘拔了：进入前再确认一次，别让空窗期进库
+    if (vault.isEnabled() && !vault.boundTokenPresent()) {
+      vault.lock();
+      pendingEnter = false;
+      throw new Error('令牌已移除，请重新插入后再进入');
+    }
     setImmediate(() => bootUnlocked());
     return true;
   }, { from: 'lock' });
@@ -1104,5 +1124,10 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
+  });
+
+  // 退出流程里不要因为窗口关闭再触发"锁定→新建锁定窗口"，否则应用退不掉
+  app.on('before-quit', () => {
+    app.isQuitting = true;
   });
 }

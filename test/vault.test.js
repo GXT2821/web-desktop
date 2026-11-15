@@ -119,9 +119,9 @@ test('令牌：force 覆盖同样适用于免 PIN 令牌', () =>
 
 test('令牌：PIN 长度不合法直接拒绝', () =>
   withEnv(async ({ tokenDir }) => {
-    await assert.rejects(() => soft.createToken(tokenDir, '123'), /4–16/);
+    await assert.rejects(() => soft.createToken(tokenDir, '123'), /6–64/);
     const { path: file } = await soft.createToken(tokenDir, '123456');
-    await assert.rejects(() => soft.openToken(file, ''), /4–16/);
+    await assert.rejects(() => soft.openToken(file, ''), /4–64/);
   }));
 
 // ---------- 免 PIN 令牌（物理钥匙） ----------
@@ -261,25 +261,21 @@ test('U 盘绑定：保险库把 driveId 纳入 KEK，改令牌文件里的盘�
     assert.deepEqual(vault.codec().decode(fs.readFileSync(vault.encFile)), SAMPLE);
   }));
 
-test('U 盘绑定：旧保险库解锁后就地升级为绑定', () =>
+test('U 盘绑定：令牌文件里的盘号丢失时，以 vault.json 的 driveId 为准', () =>
   withEnv(async ({ dataDir, tokenDir }) => {
-    // 创建"旧版"令牌：显式不绑定
-    const token = await soft.createToken(tokenDir, '123456', { drive: null });
+    const token = await soft.createToken(tokenDir, '123456');
     const vault = new Vault(dataDir);
     await vault.enroll({ tokenPath: token.path, pin: '123456', library: SAMPLE });
-    const metaBefore = JSON.parse(fs.readFileSync(path.join(dataDir, 'vault.json'), 'utf-8'));
-    assert.equal(metaBefore.tokens ? metaBefore.tokens[0].driveId : metaBefore.token.driveId, null);
+
+    // 模拟老令牌：文件里没有 drive 字段（vault.json 仍然记着 driveId）
+    const raw = JSON.parse(fs.readFileSync(token.path, 'utf-8'));
+    delete raw.drive;
+    fs.writeFileSync(token.path, JSON.stringify(raw));
 
     vault.lock();
     await vault.unlock({ pin: '123456' });
-
-    const metaAfter = JSON.parse(fs.readFileSync(path.join(dataDir, 'vault.json'), 'utf-8'));
-    const drive = require('../src/token/drive');
-    const current = drive.identify(token.path);
-    if (current) {
-      assert.equal(metaAfter.tokens[0].driveId, current.volumeSerial, '解锁后应补上 driveId');
-      assert.equal(soft.readTokenInfo(token.path).boundDrive, current.volumeSerial, '令牌文件也应补上盘号');
-    }
+    assert.equal(vault.status().locked, false);
+    assert.deepEqual(vault.codec().decode(fs.readFileSync(vault.encFile)), SAMPLE);
   }));
 
 test('U 盘绑定：只认卷序列号，换盘符/换路径不影响解锁', () =>
@@ -318,7 +314,7 @@ test('保险库：启用后数据是密文，重启后凭令牌+PIN 解回原样
     assert.ok(serial);
 
     const enc = fs.readFileSync(path.join(dataDir, 'library.enc'));
-    assert.equal(enc.subarray(0, 4).toString('ascii'), 'DVC1');
+    assert.equal(enc.subarray(0, 4).toString('ascii'), 'DVC2');
     assert.ok(!enc.includes(Buffer.from('secret-plan')), '密文里不能出现明文链接');
     assert.ok(!enc.includes(Buffer.from('不该被明文看到')), '密文里不能出现明文备注');
 
@@ -513,19 +509,21 @@ test('停用保护：persist 在删密文之前执行，失败时保险库原样
 
 // ---------- 多令牌：一套系统一枚，共用一个保险库 ----------
 
-test('多令牌：同一个 U 盘目录可放多枚令牌，追加后两枚都能解锁', () =>
+test('多令牌：不同目录的令牌可追加进同一个保险库，各自都能解锁', () =>
   withEnv(async ({ dataDir, tokenDir }) => {
     const first = await soft.createToken(tokenDir, '123456');
     const vault = new Vault(dataDir);
     await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
 
-    // 同一目录再建一枚：默认拒绝，allowMultiple 时另存为 DocVault-<平台>.key
+    // 同一目录再建一枚：提示覆盖（不再悄悄生成 -2、-3）
     await assert.rejects(() => soft.createToken(tokenDir, '654321'), /已经有一枚令牌/);
-    const second = await soft.createToken(tokenDir, '654321', { allowMultiple: true });
-    assert.notEqual(second.path, first.path, '第二枚要写到另一个位置');
-    assert.equal(path.basename(first.path), 'DocVault.key');
-    // 按系统分目录：<U盘>/mac/DocVault.key
-    assert.match(path.relative(tokenDir, second.path), /^(win|mac|linux)(-\d+)?[\\/]DocVault\.key$/);
+
+    // 另一套系统/另一张盘：单独目录里建第二枚，再追加进同一个保险库
+    const secondDir = path.join(tokenDir, 'second');
+    fs.mkdirSync(secondDir);
+    const second = await soft.createToken(secondDir, '654321');
+    assert.notEqual(second.path, first.path);
+    assert.match(path.relative(secondDir, second.path), /^(win|mac|linux)[\\/]DocVault\.key$/);
 
     // 解锁后追加第二枚
     const added = await vault.addToken({ tokenPath: second.path, pin: '654321' });
@@ -659,4 +657,20 @@ test('多令牌：解绑当前使用的那枚后，状态切到剩下的一枚�
     assert.equal(vault.status().serial, first.serial);
     assert.equal(vault.status().pinFree, false, '剩下的令牌需要 PIN');
     assert.equal(vault.boundTokenPresent(), true, '剩下的令牌仍在场，不应误上锁');
+  }));
+
+test('保险库：vault.json 损坏时回退到 .bak，数据仍可解锁', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const { path: tokenPath } = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath, pin: '123456', library: SAMPLE });
+
+    // 人为准备一份备份，再把主文件写坏
+    fs.copyFileSync(path.join(dataDir, 'vault.json'), path.join(dataDir, 'vault.json.bak'));
+    fs.writeFileSync(path.join(dataDir, 'vault.json'), '{ broken json');
+
+    vault.lock();
+    await vault.unlock({ pin: '123456' });
+    assert.equal(vault.status().locked, false);
+    assert.deepEqual(vault.codec().decode(fs.readFileSync(vault.encFile)), SAMPLE);
   }));

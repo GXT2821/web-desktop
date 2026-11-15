@@ -10,7 +10,7 @@
 //
 // 文件：
 //   vault.json   元数据 + 两份包装好的 DEK（可以公开，没令牌/恢复码解不开）
-//   library.enc  [DVC1][iv 12B][tag 16B][AES-256-GCM 密文]
+//   library.enc  [DVC2][iv 12B][tag 16B][AES-256-GCM 密文]（DVC1 为旧格式，仍可读）
 //
 // 状态机：disabled → (enroll) → unlocked ⇄ locked
 //                         locked → (恢复码) → recovery → (rebind) → unlocked
@@ -21,12 +21,12 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const soft = require('./token/soft-token');
 const provider = require('./token/provider');
+const drive = require('./token/drive');
 
 const scrypt = promisify(crypto.scrypt);
 
 const VAULT_FILE = 'vault.json';
 const ENC_FILE = 'library.enc';
-const MAGIC = Buffer.from('DVC1', 'ascii');
 const RECOVERY_KDF = { alg: 'scrypt', N: 32768, r: 8, p: 1 };
 const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 // Crockford base32（去掉易混淆的 I/L/O/U），8 组 × 4 位 ≈ 160 bit
@@ -89,27 +89,44 @@ function normalizeRecoveryCode(input) {
 function writeJsonAtomic(file, obj) {
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
+  // 覆盖前留一份 .bak：vault.json 里没有密钥，但丢了它连恢复码都没地方校验，
+  // 等于整库永久打不开。读元数据时失败会回退到这份备份。
+  try {
+    if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak`);
+  } catch (err) {
+    console.error(`[vault] 备份元数据失败：${err.message}`);
+  }
   fs.renameSync(tmp, file);
 }
 
 // ---------- 纯加解密（不关心状态，供内部与 codec 共用） ----------
 
+// 文件头带版本：DVC2 起把版本号作为 AAD，防止拿旧密文整体回滚冒充新数据。
+const MAGIC_V2 = Buffer.from('DVC2', 'ascii');
+const LEGACY_MAGIC = Buffer.from('DVC1', 'ascii');
+const AAD = Buffer.from('docvault:data:v2');
+
 function encryptBuffer(dek, data) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', dek, iv);
+  cipher.setAAD(AAD);
   const plain = Buffer.from(`${JSON.stringify(data, null, 2)}\n`, 'utf-8');
   const body = Buffer.concat([cipher.update(plain), cipher.final()]);
-  return Buffer.concat([MAGIC, iv, cipher.getAuthTag(), body]);
+  return Buffer.concat([MAGIC_V2, iv, cipher.getAuthTag(), body]);
 }
 
 function decryptBuffer(dek, buffer) {
   const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-  if (buf.length < 32 || !buf.subarray(0, 4).equals(MAGIC)) {
-    throw new Error('数据文件不是有效的加密库（缺少 DVC1 头）');
+  if (buf.length < 32) throw new Error('数据文件不是有效的加密库（长度不足）');
+  const header = buf.subarray(0, 4);
+  const legacy = header.equals(LEGACY_MAGIC);
+  if (!legacy && !header.equals(MAGIC_V2)) {
+    throw new Error('数据文件不是有效的加密库（缺少 DVC2 头）');
   }
   const iv = buf.subarray(4, 16);
   const tag = buf.subarray(16, 32);
   const decipher = crypto.createDecipheriv('aes-256-gcm', dek, iv);
+  if (!legacy) decipher.setAAD(AAD); // DVC1 是旧格式，没有 AAD；读到后下次保存会自动升级
   decipher.setAuthTag(tag);
   const plain = Buffer.concat([decipher.update(buf.subarray(32)), decipher.final()]);
   return JSON.parse(plain.toString('utf-8'));
@@ -171,7 +188,13 @@ class Vault {
     try {
       raw = JSON.parse(fs.readFileSync(this.vaultFile, 'utf-8'));
     } catch (err) {
-      throw new Error(`保险库元数据读取失败：${err.message}`);
+      // 主文件损坏/被写坏时回退到 .bak；两处都不可用才报错
+      try {
+        raw = JSON.parse(fs.readFileSync(`${this.vaultFile}.bak`, 'utf-8'));
+        console.warn('[vault] vault.json 读取失败，已回退到备份');
+      } catch {
+        throw new Error(`保险库元数据读取失败：${err.message}`);
+      }
     }
     if (!raw || !raw.salt || !raw.recovery) {
       throw new Error('保险库元数据无效（vault.json 被改动或损坏）');
@@ -222,11 +245,25 @@ class Vault {
     decryptBuffer(dek, fs.readFileSync(this.encFile));
   }
 
+  // 打开一枚"要绑定进保险库"的令牌：
+  //   1. 旧令牌先补上 U 盘卷序列号（bindDrive 只写一次）；
+  //   2. 打开会话；
+  //   3. 支持的平台上仍拿不到卷序列号 → 拒绝，避免静默退化成"任何 U 盘都认"。
+  async #openBoundToken(tokenPath, pin) {
+    soft.bindDrive(tokenPath);
+    const session = await soft.openToken(tokenPath, pin);
+    if (!session.driveId && drive.isSupported()) {
+      session.close();
+      throw new Error('无法识别这枚 U 盘的卷序列号，不能把令牌绑定到它（请换一个本地 U 盘再试）');
+    }
+    return session;
+  }
+
   // ---------- 启用（迁移现有明文库） ----------
 
   async enroll({ tokenPath, pin, library }) {
     if (this.state !== 'disabled') throw new Error('U盾保护已经启用');
-    const session = await soft.openToken(tokenPath, pin);
+    const session = await this.#openBoundToken(tokenPath, pin);
     const dek = crypto.randomBytes(32);
     const salt = crypto.randomBytes(32);
     let recoveryCode = null;
@@ -362,7 +399,13 @@ class Vault {
     try {
       let driveId = session.driveId;
       if (!driveId) driveId = soft.bindDrive(this.boundTokenPath);
-      if (!driveId) return; // 盘无序列号（如某些虚拟盘）：保持不绑定
+      if (!driveId) {
+        // 盘无序列号（如某些虚拟盘）：保持不绑定，但要在日志里留下痕迹
+        if (drive.isSupported()) {
+          console.warn('[vault] 无法识别 U 盘卷序列号，本次未能补绑定；建议重新创建令牌');
+        }
+        return;
+      }
       const kek = deriveKek(
         session.hmac(Buffer.from(meta.salt, 'hex')),
         session.serial,
@@ -417,7 +460,7 @@ class Vault {
     }
     const dek = this.dek;
     if (!dek) throw new Error('数据密钥不在内存中');
-    const session = await soft.openToken(tokenPath, pin);
+    const session = await this.#openBoundToken(tokenPath, pin);
     let recoveryCode = null;
     try {
       const old = this.#meta();
@@ -467,7 +510,7 @@ class Vault {
     const dek = this.dek;
     if (!dek) throw new Error('数据密钥不在内存中');
     const meta = this.#meta();
-    const session = await soft.openToken(tokenPath, pin);
+    const session = await this.#openBoundToken(tokenPath, pin);
     try {
       if (meta.tokens.some((t) => t.serial === session.serial)) {
         throw new Error('这枚令牌已经绑定过了');
@@ -570,6 +613,17 @@ class Vault {
       throw new Error(`PIN 校验失败：${err.message}`);
     } finally {
       if (session) session.close();
+    }
+  }
+
+  // 当前解锁用的（或第一枚）令牌序列号：重置时用来确认"即将删除的令牌确实是本库的"。
+  tokenSerial() {
+    if (!this.isEnabled()) return null;
+    try {
+      const meta = this.#meta();
+      return this.boundSerial || meta.tokens[0].serial;
+    } catch {
+      return null;
     }
   }
 

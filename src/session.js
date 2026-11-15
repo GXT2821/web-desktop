@@ -87,12 +87,24 @@ function createSessionStore({ dataDir, isVaultEnabled, isVaultLocked, codec }) {
     }
   }
 
+  // 只读明文会话。启用 U盾前用它把"上一次的标签页"取出来，再以加密形态存回去；
+  // 启用后不能再用（此时明文文件应当已被 save() 删除）。
+  function loadPlain() {
+    try {
+      if (!fs.existsSync(plainFile)) return null;
+      return normalize(JSON.parse(fs.readFileSync(plainFile, 'utf-8')));
+    } catch (err) {
+      console.error(`[session] 读取明文会话失败：${err.message}`);
+      return null;
+    }
+  }
+
   function clear() {
     remove(plainFile);
     remove(encFile);
   }
 
-  return { save, load, clear, files: { plainFile, encFile } };
+  return { save, load, loadPlain, clear, files: { plainFile, encFile } };
 }
 
 module.exports = { createSessionStore, normalize, PLAIN_FILE, ENC_FILE };
