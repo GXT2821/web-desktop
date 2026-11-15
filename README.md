@@ -378,7 +378,9 @@ PIN 错误计数由硬件锁死、板载按钮确认后才响应 HMAC。主机�
   数据 IPC 全部拒绝且校验调用方窗口；锁定窗口用独立 preload，拿不到任何文档库方法。
   密钥设计与边界见上文「U盾保护」。
 
-运行时为 **Electron 41.10.7**（41.x 是当前维护分支）。升级前 33.4.11 已停止安全更新，`npm audit` 对其报出 38 条公告（含 webview 在 Worker 里开 Node、沙箱文档经 window.open 丢失限制、HTTP 重定向进入 file loader 等 high 级问题）；升级后 `npm audit` 无 high/critical，仅剩构建期依赖（electron-builder 链）的 moderate 条目，这些不进最终产物。
+运行时为 **Electron 45.3.2**（Chromium 156 / Node 24.22 / V8 15.6）。Electron 只维护最新 3 个大版本（升级时窗口是 42/43/44/45），41.x 已停止安全更新；41 带的是 Chromium 146，比当时的 Chrome 稳定版落后 10 个 milestone，45 只落后 1 个。
+
+更早的 33.4.11 也已停止安全更新，`npm audit` 曾对其报出 38 条公告（含 webview 在 Worker 里开 Node、沙箱文档经 window.open 丢失限制、HTTP 重定向进入 file loader 等 high 级问题）；当前 `npm audit` 无 high/critical，仅剩构建期依赖（electron-builder 链）的 moderate 条目，这些不进最终产物。
 
 另外仓库不做代码签名与公证：产物在本机可用，分发给他人需自行配置 Developer ID 并公证（见「打包」）。
 
@@ -435,7 +437,7 @@ npm run test:e2e:auto  # node scripts/e2e-autounlock.js（免 PIN 插拔自动�
 - **完全离线打包**：把 `.electron-cache` 里的 Electron zip 解开，直接让 electron-builder 用它，不联网也能出包：
 
   ```bash
-  unzip -q .electron-cache/*/electron-v41.10.7-darwin-arm64.zip -d .electron-cache/dist
+  unzip -q .electron-cache/*/electron-v45.3.2-darwin-arm64.zip -d .electron-cache/dist
   ./node_modules/.bin/electron-builder --mac --config.electronDist="$PWD/.electron-cache/dist"
   ```
 
