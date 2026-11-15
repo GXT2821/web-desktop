@@ -53,7 +53,7 @@ function encryptLibrary(library, passphrase) {
 function decryptExport(blob, passphrase) {
   const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
   if (buf.length < 4 + 16 + 12 + 16 || !buf.subarray(0, 4).equals(MAGIC)) {
-    throw new Error('不是有效的文档库加密导出文件（文件头不正确）');
+    throw new Error('不是有效的文档库导出文件（文件头不正确）');
   }
   const salt = buf.subarray(4, 20);
   const iv = buf.subarray(20, 32);

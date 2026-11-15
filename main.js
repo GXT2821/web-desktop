@@ -512,7 +512,7 @@ function registerIpc() {
   // 导出成 JSON 文件：交给系统"另存为"，用户自己选位置（默认落在下载目录）
   handle('library:export', async () => {
     // 启用 U盾后不再提供明文导出通道（渲染层已改道，这里再拦一次，防止绕过界面调用 IPC）
-    if (vault.isEnabled()) throw new Error('已启用 U盾保护，请使用「文件 → 加密导出…」');
+    if (vault.isEnabled()) throw new Error('已启用 U盾保护，请使用「文件 → 导出…」');
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const { canceled, filePath } = await dialog.showSaveDialog(win || undefined, {
       title: '导出文档库',
@@ -546,9 +546,9 @@ function registerIpc() {
     transfer.assertPassphrase(passphrase);
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const { canceled, filePath } = await dialog.showSaveDialog(win || undefined, {
-      title: '加密导出文档库',
+      title: '导出文档库',
       defaultPath: path.join(app.getPath('downloads'), transfer.exportFilename()),
-      filters: [{ name: '文档库加密备份', extensions: ['dve'] }],
+      filters: [{ name: '文档库备份', extensions: ['dve'] }],
       properties: ['createDirectory', 'showOverwriteConfirmation'],
     });
     if (canceled || !filePath) return { canceled: true };
@@ -567,9 +567,9 @@ function registerIpc() {
     transfer.assertPassphrase(passphrase);
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const { canceled, filePaths } = await dialog.showOpenDialog(win || undefined, {
-      title: '导入加密备份',
+      title: '导入备份',
       properties: ['openFile'],
-      filters: [{ name: '文档库加密备份', extensions: ['dve'] }],
+      filters: [{ name: '文档库备份', extensions: ['dve'] }],
     });
     if (canceled || !filePaths || !filePaths.length) return { canceled: true };
     const stat = await fs.promises.stat(filePaths[0]);
@@ -1103,8 +1103,8 @@ function setupMenu() {
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => sendMenuAction('reveal-data'),
         },
-        { label: '加密导出…', click: () => sendMenuAction('export-encrypted') },
-        { label: '导入加密备份…', click: () => sendMenuAction('import-encrypted') },
+        { label: '导出…', click: () => sendMenuAction('export-encrypted') },
+        { label: '导入…', click: () => sendMenuAction('import-encrypted') },
         { type: 'separator' },
         { label: '重置…', click: () => sendMenuAction('reset') },
         ...(isMac ? [] : [{ type: 'separator' }, { role: 'quit', label: '退出' }]),

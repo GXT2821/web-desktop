@@ -501,8 +501,8 @@
           label: '文件',
           actions: [
             { label: '打开数据文件位置', onClick: () => window.api.revealDataFile().catch((err) => toast(err.message, true)) },
-            { label: '加密导出…', hint: '导出为带口令的 .dve 文件', onClick: exportEncryptedDialog },
-            { label: '导入加密备份…', hint: '从 .dve 文件合并或覆盖', onClick: importEncryptedDialog },
+            { label: '导出…', hint: '导出为带口令的 .dve 文件', onClick: exportEncryptedDialog },
+            { label: '导入…', hint: '从 .dve 文件合并或覆盖', onClick: importEncryptedDialog },
             { separator: true },
             { label: '重置…', hint: '清空文档库并恢复出厂状态', onClick: resetDialog },
           ],
@@ -1815,14 +1815,14 @@
     const submit = el('button', { class: 'btn-primary', type: 'submit', text: '选择位置并导出' });
 
     const form = el('form', { class: 'modal-form' }, [
-      el('h2', { text: '加密导出' }),
+      el('h2', { text: '导出文档库' }),
       el('p', {
         class: 'modal-desc',
         text: '把整个文档库（文件夹、标签、星标、备注）导出成一个带口令的 .dve 文件。文件可以放 U 盘带到别的电脑导入；没有口令打不开。',
       }),
       el('div', { class: 'field' }, [el('label', { text: '导出口令' }), passInput]),
       el('div', { class: 'field' }, [el('label', { text: '确认口令' }), passInput2]),
-      el('p', { class: 'hint', text: '口令只用于加密文件，不会保存；忘记口令将无法导入这份备份。' }),
+      el('p', { class: 'hint', text: '口令只用于保护这份文件，不会保存；忘记口令将无法导入这份备份。' }),
       errorText,
       el('div', { class: 'modal-actions' }, [
         el('button', { class: 'btn-ghost', type: 'button', text: '取消', onclick: closeModal }),
@@ -1850,7 +1850,7 @@
         }
         closeModal();
         const name = result.path.split(/[\\/]/).pop();
-        toast(`已加密导出 ${result.docs} 条文档 → ${name}`);
+        toast(`已导出 ${result.docs} 条文档 → ${name}`);
       } catch (err) {
         showError(err.message);
         submit.disabled = false;
@@ -1872,7 +1872,7 @@
     const submit = el('button', { class: 'btn-primary', type: 'submit', text: '选择文件并导入' });
 
     const form = el('form', { class: 'modal-form' }, [
-      el('h2', { text: '导入加密备份' }),
+      el('h2', { text: '导入备份' }),
       el('p', { class: 'modal-desc', text: '选择从另一台设备导出的 .dve 文件，输入同一口令后导入。' }),
       el('div', { class: 'field' }, [el('label', { text: '导出口令' }), passInput]),
       el('div', { class: 'field' }, [
