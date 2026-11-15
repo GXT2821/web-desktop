@@ -89,12 +89,23 @@ function normalizeRecoveryCode(input) {
 function writeJsonAtomic(file, obj) {
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
-  // 覆盖前留一份 .bak：vault.json 里没有密钥，但丢了它连恢复码都没地方校验，
-  // 等于整库永久打不开。读元数据时失败会回退到这份备份。
+  // 覆盖前留一份 .bak，但只在"当前主文件确实能解析"时才备份：
+  // 主文件已经写坏时再把它复制成 .bak，会把上一份好备份挤掉。
+  let canBackup = false;
   try {
-    if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak`);
-  } catch (err) {
-    console.error(`[vault] 备份元数据失败：${err.message}`);
+    if (fs.existsSync(file)) {
+      JSON.parse(fs.readFileSync(file, 'utf-8'));
+      canBackup = true;
+    }
+  } catch {
+    canBackup = false;
+  }
+  if (canBackup) {
+    try {
+      fs.copyFileSync(file, `${file}.bak`);
+    } catch (err) {
+      console.error(`[vault] 备份元数据失败：${err.message}`);
+    }
   }
   fs.renameSync(tmp, file);
 }
@@ -184,20 +195,23 @@ class Vault {
   // 读元数据并统一成 v2 结构：{ salt, tokens: [{...token, wrappedDek}], recovery }。
   // v1 是单令牌（token + wrappedDek），读进来就地提升，写入时升到 v2。
   #meta() {
-    let raw;
-    try {
-      raw = JSON.parse(fs.readFileSync(this.vaultFile, 'utf-8'));
-    } catch (err) {
-      // 主文件损坏/被写坏时回退到 .bak；两处都不可用才报错
+    // 主文件解析失败、或解析出来但字段无效（被截断/手改）时，都回退到 .bak。
+    const candidates = [this.vaultFile, `${this.vaultFile}.bak`];
+    let raw = null;
+    let firstError = null;
+    for (let i = 0; i < candidates.length; i += 1) {
       try {
-        raw = JSON.parse(fs.readFileSync(`${this.vaultFile}.bak`, 'utf-8'));
-        console.warn('[vault] vault.json 读取失败，已回退到备份');
-      } catch {
-        throw new Error(`保险库元数据读取失败：${err.message}`);
+        const parsed = JSON.parse(fs.readFileSync(candidates[i], 'utf-8'));
+        if (!parsed || !parsed.salt || !parsed.recovery) throw new Error('字段不完整');
+        raw = parsed;
+        if (i > 0) console.warn('[vault] vault.json 不可用，已回退到备份');
+        break;
+      } catch (err) {
+        if (!firstError) firstError = err;
       }
     }
-    if (!raw || !raw.salt || !raw.recovery) {
-      throw new Error('保险库元数据无效（vault.json 被改动或损坏）');
+    if (!raw) {
+      throw new Error(`保险库元数据读取失败：${firstError ? firstError.message : '文件无效'}`);
     }
     let tokens;
     if (Array.isArray(raw.tokens)) {
@@ -627,18 +641,45 @@ class Vault {
     }
   }
 
+  // 当前解锁用的那枚令牌的 { path, serial }：停用保护时要删的就是它。
+  // 只按 boundSerial 找，不会误删同一张 U 盘上别的系统的令牌。
+  boundTokenInfo() {
+    if (!this.isEnabled()) return null;
+    try {
+      const meta = this.#meta();
+      const record = meta.tokens.find((t) => t.serial === this.boundSerial) || null;
+      if (!record) return null;
+      const candidate = record.path || this.boundTokenPath || null;
+      if (candidate) {
+        const info = soft.readTokenInfo(candidate);
+        if (info && info.serial === record.serial) {
+          return { path: candidate, serial: record.serial };
+        }
+      }
+      const found = provider.findBySerial(record.serial);
+      return found ? { path: found.path, serial: found.serial } : null;
+    } catch {
+      return null;
+    }
+  }
+
   // 重置时用：返回绑定令牌的文件路径（未启用或元数据损坏时返回 null）。
   // 盘符可能变化：旧路径失效时按序列号重新扫描，不依赖记录下来的盘符。
   tokenPath() {
     if (!this.isEnabled()) return null;
     try {
       const meta = this.#meta();
-      for (const record of meta.tokens) {
+      // 优先"本机正在用的那枚"（boundSerial），多枚令牌同时在插时避免选错
+      const ordered = [];
+      const bound = meta.tokens.find((t) => t.serial === this.boundSerial);
+      if (bound) ordered.push(bound);
+      for (const record of meta.tokens) if (record !== bound) ordered.push(record);
+      for (const record of ordered) {
         if (record.path && fs.existsSync(record.path)) return record.path;
         const found = provider.findBySerial(record.serial);
         if (found) return found.path;
       }
-      return meta.tokens[0].path || null;
+      return ordered[0].path || null;
     } catch {
       return null;
     }

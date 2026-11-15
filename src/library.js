@@ -1176,6 +1176,11 @@
     const exportBtn = document.getElementById('exportBtn');
     if (exportBtn && typeof window.api.exportLibrary === 'function') {
       exportBtn.addEventListener('click', async () => {
+        // 启用 U盾后不再提供明文导出：文件离开本机就应当是密文
+        if (state.info && state.info.vault && state.info.vault.enabled) {
+          exportEncryptedDialog();
+          return;
+        }
         try {
           const result = await window.api.exportLibrary();
           if (!result || result.canceled) return;
@@ -1677,6 +1682,8 @@
   function vaultDisableDialog() {
     const pinFree = Boolean(state.info && state.info.vault && state.info.vault.pinFree);
     const pinInput = el('input', { type: 'password', maxlength: '64', placeholder: '令牌 PIN', autocomplete: 'off', 'data-autofocus': true });
+    const deleteTokenCheck = el('input', { type: 'checkbox' });
+    deleteTokenCheck.checked = true; // 停用后令牌已无用途，默认清掉
     const errorText = el('p', { class: 'error', hidden: true });
     const form = el('form', { class: 'modal-form' }, [
       el('h2', { text: '停用 U盾保护' }),
@@ -1687,6 +1694,10 @@
           : '停用后数据恢复为明文存储（library.json），能访问这台电脑的人都可以读取。需要令牌 PIN 确认。',
       }),
       pinFree ? null : el('div', { class: 'field' }, [el('label', { text: 'PIN' }), pinInput]),
+      el('label', { class: 'check-row' }, [
+        deleteTokenCheck,
+        el('span', { text: '同时删除本系统在 U 盘上的令牌文件（停用后它已无用途）' }),
+      ]),
       errorText,
       el('div', { class: 'modal-actions' }, [
         el('button', { class: 'btn-ghost', type: 'button', text: '取消', onclick: closeModal }),
@@ -1699,12 +1710,14 @@
       submit.disabled = true;
       errorText.hidden = true;
       try {
-        await window.api.vaultDisable(pinFree ? '' : pinInput.value);
+        const result = await window.api.vaultDisable(pinFree ? '' : pinInput.value, deleteTokenCheck.checked);
         closeModal();
         absorb(await window.api.getLibrary());
         state.info = await window.api.getInfo();
         renderFoot();
-        toast('已停用 U盾保护，数据恢复为明文存储');
+        const deleted = result && result.tokenRemoved;
+        toast(deleted ? '已停用 U盾保护，并删除了 U 盘上的令牌文件' : '已停用 U盾保护，数据恢复为明文存储');
+        if (result && result.tokenWarning) toast(`令牌未删除：${result.tokenWarning}`, true);
       } catch (err) {
         errorText.textContent = err.message;
         errorText.hidden = false;

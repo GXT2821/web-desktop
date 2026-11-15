@@ -49,19 +49,19 @@ test('重置：删除库/保险库/下载记录/留档，保留其他文件', ()
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('重置：默认不动令牌，显式勾选才删', () => {
+test('重置：默认不动令牌，显式勾选才删', async () => {
+  const soft = require('../src/token/soft-token');
   const dir = tmpDir();
   const tokenDir = tmpDir();
-  const tokenFile = path.join(tokenDir, 'DocVault.key');
+  const token = await soft.createToken(tokenDir, '123456');
   fs.writeFileSync(path.join(dir, 'library.enc'), 'x');
-  fs.writeFileSync(tokenFile, '{"type":"docvault-soft-token"}');
 
-  resetDataDir(dir, { deleteToken: false, tokenPath: tokenFile });
-  assert.ok(fs.existsSync(tokenFile), '未勾选时令牌必须保留');
+  resetDataDir(dir, { deleteToken: false, tokenPath: token.path });
+  assert.ok(fs.existsSync(token.path), '未勾选时令牌必须保留');
 
   fs.writeFileSync(path.join(dir, 'library.enc'), 'x');
-  const second = resetDataDir(dir, { deleteToken: true, tokenPath: tokenFile });
-  assert.equal(fs.existsSync(tokenFile), false);
+  const second = resetDataDir(dir, { deleteToken: true, tokenPath: token.path });
+  assert.equal(fs.existsSync(token.path), false);
   assert.ok(second.removed.includes('DocVault.key'));
 
   fs.rmSync(dir, { recursive: true, force: true });

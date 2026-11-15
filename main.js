@@ -13,7 +13,7 @@ const { sanitizeLibrary } = require('./src/store');
 const transfer = require('./src/transfer');
 const { Downloads } = require('./src/downloads');
 const { Vault } = require('./src/vault');
-const { resetDataDir, listTargets } = require('./src/reset');
+const { resetDataDir, listTargets, removeTokenFile } = require('./src/reset');
 const { createSessionStore } = require('./src/session');
 const { isIdleLock } = require('./src/idle');
 const softToken = require('./src/token/soft-token');
@@ -58,6 +58,22 @@ let sessionStore = null;
 let lockWindow = null;
 const IDLE_MINUTES = Math.max(1, Number(process.env.DOCVAULT_IDLE_MINUTES) || 10);
 
+// 整体替换数据库内容：先写盘成功，再承认新数据。
+// 反过来的写法（先改内存再 save）在磁盘满/只读时会留下"IPC 报错但内存已换库"的状态，
+// 用户再编辑一次就把新库写盘、原库只剩一代 .bak。
+function replaceStoreData(next) {
+  if (!store) throw new Error('数据层未就绪');
+  const previous = store.data;
+  store.data = next;
+  try {
+    store.save();
+  } catch (err) {
+    store.data = previous;
+    throw err;
+  }
+  return next;
+}
+
 // 打开数据层（仅在解锁状态调用）：按保护开关选择明文/加密文件
 function openStore() {
   const file = vault.isEnabled()
@@ -82,6 +98,10 @@ const downloads = new Downloads({
 const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
 // 开发期窗口/Dock 图标；打包后由 .app 的 icns、exe 内嵌图标接管（build/ 不随包分发）
 const DEV_ICON = path.join(__dirname, 'build', 'icon.png');
+// 打包版的窗口图标：正常安装时 exe/ .app 已内嵌图标，这里再显式设一次是兜底——
+// 绿色部署（启动器是未改动的 electron 二进制，内嵌的是 Electron 默认图标）时靠它才有自己的图标。
+const PACKAGED_ICON = path.join(__dirname, 'src', 'icon.ico');
+const WINDOW_ICON = app.isPackaged ? PACKAGED_ICON : DEV_ICON;
 
 // 外壳页面路径：外壳窗口只允许停在这个文件上（见 isShellUrl）
 const SHELL_FILE = path.join(__dirname, 'src', 'shell.html');
@@ -243,8 +263,8 @@ function createMainWindow() {
     title: '文档库',
     backgroundColor: '#f6f7f9',
     show: false,
-    // 打包后图标由 .app / exe 提供；开发期才需要显式指定（未打包时传 undefined 会产生 nativeImage 警告）
-    ...(app.isPackaged ? {} : { icon: DEV_ICON }),
+    // 窗口图标始终显式指定：打包版用包内 src/icon.ico，开发期用 build/icon.png
+    icon: WINDOW_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       webviewTag: true, // 文档在应用内以 <webview> 打开
@@ -299,7 +319,9 @@ function createMainWindow() {
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
     if (app.isQuitting || process.platform !== 'darwin') return;
-    if (vault.isEnabled() && !vault.isLocked()) doLock('主窗口已关闭');
+    // 关窗后应用仍在后台运行：必须上锁，避免"关窗再点 Dock 就绕过令牌"。
+    // doLock 内部会处理已锁定/恢复态，不会重复建窗口。
+    if (vault.isEnabled()) doLock('主窗口已关闭');
   });
 
   win.loadFile(path.join(__dirname, 'src', 'shell.html'));
@@ -318,7 +340,7 @@ function createLockWindow() {
     title: '文档库 · 已锁定',
     backgroundColor: '#f6f7f9',
     show: false,
-    ...(app.isPackaged ? {} : { icon: DEV_ICON }),
+    icon: WINDOW_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload-lock.js'),
       contextIsolation: true,
@@ -548,12 +570,14 @@ function registerIpc() {
       filters: [{ name: '文档库加密备份', extensions: ['dve'] }],
     });
     if (canceled || !filePaths || !filePaths.length) return { canceled: true };
+    const stat = await fs.promises.stat(filePaths[0]);
+    if (stat.size > 50 * 1024 * 1024) throw new Error('备份文件超过 50MB，已拒绝导入');
     const blob = await fs.promises.readFile(filePaths[0]);
     const payload = transfer.decryptExport(blob, passphrase);
     const incoming = sanitizeLibrary(payload.library);
+    if (incoming.docs.length > 50000) throw new Error('备份里的文档数量异常，已拒绝导入');
     if (mode === 'overwrite') {
-      store.data = incoming;
-      store.save();
+      replaceStoreData(incoming);
       return {
         canceled: false,
         mode: 'overwrite',
@@ -562,8 +586,7 @@ function registerIpc() {
       };
     }
     const merged = transfer.mergeLibraries(store.data, incoming);
-    store.data = merged.library;
-    store.save();
+    replaceStoreData(merged.library);
     return { canceled: false, mode: 'merge', library: store.snapshot(), stats: merged.stats };
   });
 
@@ -599,6 +622,15 @@ function bootUnlocked() {
 function startUnlocked() {
   // 解锁与"确定进入"是两条 IPC，理论上可能被连点；已在文档库界面时不再开第二个窗口
   if (mainWindow && !mainWindow.isDestroyed()) return;
+  // 只有密文、没有 vault.json：不能按"未启用"启动并建空库（用户会以为数据没了）。
+  if (!vault.isEnabled() && fs.existsSync(vault.encFile)) {
+    dialog.showErrorBox(
+      '保护配置缺失',
+      `找到了加密数据 ${vault.encFile}，但缺少 vault.json（保护配置）。\n\n请从备份恢复 vault.json 后再启动，不要继续使用空库。`
+    );
+    app.quit();
+    return;
+  }
   // 保险库已启用但密文文件不在：绝不能当成"全新安装"建空库覆盖——
   // 那会让用户以为数据没了，其实只是文件被移走/同步盘没同步下来。
   if (vault.isEnabled() && !fs.existsSync(vault.encFile)) {
@@ -629,7 +661,10 @@ function startUnlocked() {
 // 注意顺序：必须先建好锁定窗口再销毁主窗口。反过来会在"所有窗口都关了"的
 // 瞬间触发 window-all-closed → app.quit()，应用直接退出。
 function doLock(reason) {
-  if (!vault.isEnabled() || vault.isLocked()) return;
+  if (!vault.isEnabled()) return;
+  const recovering = vault.state === 'recovery';
+  // recovery 虽然 isLocked() 也算 true，但 DEK 已在内存，必须同样清掉并退回锁定
+  if (!recovering && vault.isLocked()) return;
   for (const entry of downloads.snapshot()) {
     if (entry.state === 'progressing') downloads.cancel(entry.id);
   }
@@ -639,7 +674,11 @@ function doLock(reason) {
   sessionTabs = null;
   pendingEnter = false;
   if (!lockWindow || lockWindow.isDestroyed()) lockWindow = createLockWindow();
-  else lockWindow.show();
+  else {
+    lockWindow.show();
+    // 复位锁定页：清掉"已读取/等待确定"或恢复态残留，重新按 locked 渲染
+    lockWindow.webContents.reload();
+  }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
   mainWindow = null;
   console.log(`[vault] 已锁定：${reason}`);
@@ -711,6 +750,16 @@ function wipePlaintextLibrary() {
       console.error(`[vault] 清理明文文件失败 ${name}: ${err.message}`);
     }
   }
+  // 重置时的自动备份目录里也可能是明文库；启用加密后必须一并清掉
+  try {
+    for (const name of fs.readdirSync(DATA_DIR)) {
+      if (!name.startsWith('reset-backup-')) continue;
+      fs.rmSync(path.join(DATA_DIR, name), { recursive: true, force: true });
+      console.log(`[vault] 已清理明文重置备份目录 ${name}`);
+    }
+  } catch (err) {
+    console.error(`[vault] 清理重置备份目录失败：${err.message}`);
+  }
 }
 
 // 拔盾 / 空闲 / 休眠 / 锁屏 → 自动锁定；锁定态下插入免 PIN 令牌 → 读取密钥等待确认
@@ -718,8 +767,15 @@ function startVaultWatchers() {
   setInterval(() => {
     if (!vault.isEnabled()) return;
     if (vault.isLocked()) {
-      // 恢复流程（已拿恢复码、等绑定新令牌）不自动读密钥
-      if (vault.state !== 'recovery') readKeyOnly('检测到令牌插入');
+      // 恢复流程（已拿恢复码、等绑定新令牌）不自动读密钥，但同样受空闲锁约束：
+      // 恢复态里 DEK 在内存，不能因为"已经是锁定状态"就不清。
+      if (vault.state === 'recovery') {
+        if (isIdleLock(powerMonitor.getSystemIdleTime(), IDLE_MINUTES)) {
+          doLock('恢复流程空闲超时');
+        }
+        return;
+      }
+      readKeyOnly('检测到令牌插入');
       return;
     }
     // 密钥已读、人还没点「确定」：这期间拔盾要立刻退回锁定态
@@ -851,7 +907,9 @@ function registerVaultIpc() {
   // 停用保护：PIN 校验 → 先原子写明文 → 成功后才删密文与 vault.json。
   // 顺序不能反：之前先删密文再写 library.json，写失败（磁盘满/只读）时
   // 数据只剩内存一份，退出即丢。现在任何一步失败密文都还在，可重试。
-  handleVault('vault:disable', async ({ pin }) => {
+  handleVault('vault:disable', async ({ pin, deleteToken } = {}) => {
+    // 停用前先记下"本机正在用的那枚令牌"——停用后 vault.json 就没了，不能再查
+    const tokenInfo = vault.boundTokenInfo();
     // 停用前先把加密会话读出来（解锁态才读得到），停用后以明文写回
     const pendingSession = sessionStore ? sessionStore.load() : null;
     const plain = await vault.disable({
@@ -884,7 +942,19 @@ function registerVaultIpc() {
       }
     } catch { /* 忽略 */ }
     openStore();
-    return { docs: plain.docs.length };
+    // 停用后令牌已经解不开任何东西：默认把它删掉，避免 U 盘上留一个没用的密钥文件。
+    // 只删"本机用的这枚"（其他系统的令牌不动）；删除失败不影响停用结果。
+    let tokenRemoved = false;
+    let tokenWarning = null;
+    if (deleteToken !== false && tokenInfo) {
+      const removal = removeTokenFile(tokenInfo);
+      tokenRemoved = removal.removed;
+      if (removal.error) {
+        tokenWarning = removal.error;
+        console.warn(`[vault] 删除令牌失败：${removal.error}`);
+      }
+    }
+    return { docs: plain.docs.length, tokenRemoved, tokenWarning };
   }, { from: 'main' });
 
   // ---- 锁定窗口专用 ----

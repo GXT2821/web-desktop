@@ -45,6 +45,24 @@ function listTargets(dataDir) {
   return [...names].filter((name) => fs.existsSync(path.join(dataDir, name)));
 }
 
+// 删除一枚令牌文件：先校验序列号，避免盘符复用后误删别的库的令牌。
+// 返回 { removed, path?, error? }；供重置和"停用保护"共用。
+function removeTokenFile({ tokenPath = null, expectedSerial = null } = {}) {
+  if (!tokenPath) return { removed: false };
+  const file = path.resolve(tokenPath);
+  const info = soft.readTokenInfo(file);
+  if (!info) return { removed: false, error: '令牌文件不存在或无效' };
+  if (expectedSerial && info.serial !== expectedSerial) {
+    return { removed: false, error: '令牌序列号与当前库不匹配，已跳过删除' };
+  }
+  try {
+    fs.rmSync(file, { force: true });
+    return { removed: true, path: file };
+  } catch (err) {
+    return { removed: false, error: err.message };
+  }
+}
+
 // deleteToken：是否连 U 盘上的令牌文件一起删（用户明确勾选才做）
 // expectedSerial：本库绑定的令牌序列号。盘符可能被复用，删除前必须确认
 //                 "这个路径上的令牌确实是本库的"，否则会误删别人/别的库的令牌。
@@ -86,26 +104,12 @@ function resetDataDir(
   }
 
   if (deleteToken && tokenPath) {
-    const tokenFile = path.resolve(tokenPath);
-    const info = soft.readTokenInfo(tokenFile);
-    if (expectedSerial && (!info || info.serial !== expectedSerial)) {
-      // 路径上不是本库的令牌（盘符被别的盘复用）：宁可少删，也不能误删
-      failed.push({ name: path.basename(tokenFile), error: '令牌序列号与当前库不匹配，已跳过删除' });
-    } else {
-      for (const file of [tokenFile, `${tokenFile}.tmp`]) {
-        try {
-          if (fs.existsSync(file)) {
-            fs.rmSync(file, { force: true });
-            removed.push(path.basename(file));
-          }
-        } catch (err) {
-          failed.push({ name: path.basename(file), error: err.message });
-        }
-      }
-    }
+    const result = removeTokenFile({ tokenPath, expectedSerial });
+    if (result.removed) removed.push(path.basename(result.path));
+    else if (result.error) failed.push({ name: path.basename(tokenPath), error: result.error });
   }
 
   return { removed, failed, backupDir };
 }
 
-module.exports = { resetDataDir, listTargets, APP_FILES };
+module.exports = { resetDataDir, listTargets, removeTokenFile, APP_FILES };

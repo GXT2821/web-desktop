@@ -48,7 +48,7 @@ contextBridge.exposeInMainWorld('api', {
   vaultPickDir: () => call('vault:pick-dir'),
   vaultEnroll: (payload) => call('vault:enroll', payload),
   vaultLock: () => call('vault:lock'),
-  vaultDisable: (pin) => call('vault:disable', { pin }),
+  vaultDisable: (pin, deleteToken) => call('vault:disable', { pin, deleteToken }),
   vaultResetTargets: () => call('vault:reset-targets'),
   vaultReset: (payload) => call('vault:reset', payload),
 

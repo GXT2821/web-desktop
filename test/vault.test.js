@@ -445,6 +445,12 @@ test('停用保护：还原明文库并清掉保险库文件', () =>
     const { path: tokenPath } = await soft.createToken(tokenDir, '123456');
     const vault = new Vault(dataDir);
     await vault.enroll({ tokenPath, pin: '123456', library: SAMPLE });
+    // 停用前能定位到"本机用的这枚令牌"，供上层删除 U 盘文件
+    const info = vault.boundTokenInfo();
+    assert.ok(info);
+    assert.equal(info.path, tokenPath);
+    assert.equal(info.serial, soft.readTokenInfo(tokenPath).serial);
+
     const plain = await vault.disable({ pin: '123456' });
     assert.deepEqual(plain, SAMPLE);
     assert.equal(vault.isEnabled(), false);

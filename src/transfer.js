@@ -79,10 +79,18 @@ function decryptExport(blob, passphrase) {
   }
 }
 
-// 合并：现有库优先，只补充新东西；同 URL（归一化后）不重复添加。
+// 合并：现有库优先，只补充新东西；
+//   判重键 = 归一化 URL + 所属文件夹（与本地"同链接可存在于不同文件夹"的模型一致），
+//   文档 id 冲突时重新分配，避免两台设备各自改过同一条后合并出重复 id。
 function mergeLibraries(current, incoming) {
   const base = core.sanitizeLibrary(current);
-  const add = core.sanitizeLibrary(incoming);
+  // 导入的文档可能引用"现有库里的文件夹"：合并文件夹列表后再 sanitize，
+  // 否则单独清洗 incoming 会把 f2 之类的 folderId 当成孤儿清成 null。
+  const add = core.sanitizeLibrary({
+    version: incoming && incoming.version,
+    folders: [...base.folders, ...((incoming && incoming.folders) || [])],
+    docs: (incoming && incoming.docs) || [],
+  });
 
   const folders = base.folders.map((f) => ({ ...f }));
   const folderIds = new Set(folders.map((f) => f.id));
@@ -99,16 +107,20 @@ function mergeLibraries(current, incoming) {
   }
 
   const docs = base.docs.map((d) => ({ ...d, tags: [...d.tags] }));
-  const seen = new Set(docs.map((d) => core.urlKey(d.url)));
+  const seen = new Set(docs.map((d) => `${core.urlKey(d.url)}|${d.folderId || ''}`));
+  const docIds = new Set(docs.map((d) => d.id));
   let docsAdded = 0;
   let docsSkipped = 0;
   for (const doc of add.docs) {
-    const key = core.urlKey(doc.url);
+    const key = `${core.urlKey(doc.url)}|${doc.folderId || ''}`;
     if (seen.has(key)) {
       docsSkipped += 1;
       continue;
     }
-    docs.push({ ...doc, tags: [...doc.tags] });
+    // id 被另一条不同内容占用：换一个新 id，避免编辑/删除命中错条目
+    const id = docIds.has(doc.id) ? core.makeId('d') : doc.id;
+    docIds.add(id);
+    docs.push({ ...doc, id, tags: [...doc.tags] });
     seen.add(key);
     docsAdded += 1;
   }

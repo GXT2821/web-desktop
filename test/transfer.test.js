@@ -49,8 +49,8 @@ test('合并：同 URL（归一化后）不重复，新文档/文件夹会补进
       { id: 'f4', name: '孤儿', parentId: 'missing' },
     ],
     docs: [
-      { id: 'x1', title: '重复链接', url: 'https://example.com/a', tags: [] },
-      { id: 'x2', title: '新文档', url: 'https://example.com/new', tags: ['n'] },
+      { id: 'x1', title: '重复链接', url: 'https://example.com/a', folderId: 'f1', tags: [] },
+      { id: 'x2', title: '新文档', url: 'https://example.com/new', tags: [] },
     ],
   };
 
@@ -71,6 +71,31 @@ test('合并：导入内容会经过字段清洗（非法链接丢弃）', () =>
   );
   assert.equal(library.docs.length, 0);
   assert.equal(stats.docsAdded, 0);
+});
+
+test('合并：同 URL 不同文件夹视为两条；id 冲突会重新分配', () => {
+  const base = {
+    version: 1,
+    folders: [
+      { id: 'f1', name: 'A', parentId: null },
+      { id: 'f2', name: 'B', parentId: null },
+    ],
+    docs: [{ id: 'd1', title: '旧', url: 'https://example.com/x', folderId: 'f1', tags: [] }],
+  };
+  const incoming = {
+    version: 1,
+    folders: [],
+    docs: [
+      { id: 'd1', title: '同 id 不同内容', url: 'https://example.com/y', folderId: 'f2', tags: [] },
+      { id: 'd2', title: '同 URL 在另一个文件夹', url: 'https://example.com/x', folderId: 'f2', tags: [] },
+    ],
+  };
+  const { library, stats } = transfer.mergeLibraries(base, incoming);
+  assert.equal(library.docs.length, 3);
+  assert.equal(stats.docsAdded, 2);
+  assert.equal(new Set(library.docs.map((d) => d.id)).size, 3, 'id 必须唯一');
+  assert.notEqual(library.docs.find((d) => d.title === '同 id 不同内容').id, 'd1');
+  assert.equal(library.docs.find((d) => d.title === '同 URL 在另一个文件夹').folderId, 'f2');
 });
 
 test('导出文件名带日期', () => {
