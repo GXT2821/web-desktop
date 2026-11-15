@@ -21,11 +21,12 @@
     "build:all": "node scripts/build.js all"
   },
   "devDependencies": {
-    "electron": "^41.10.7",
+    "electron": "^45.3.2",
     "electron-builder": "^26.15.3"
   },
   "allowScripts": {
     "electron@41.10.7": true,
+    "electron@45.3.2": true,
     "electron-winstaller@5.4.0": true
   },
   "build": {
