@@ -511,6 +511,8 @@ function registerIpc() {
   });
   // 导出成 JSON 文件：交给系统"另存为"，用户自己选位置（默认落在下载目录）
   handle('library:export', async () => {
+    // 启用 U盾后不再提供明文导出通道（渲染层已改道，这里再拦一次，防止绕过界面调用 IPC）
+    if (vault.isEnabled()) throw new Error('已启用 U盾保护，请使用「文件 → 加密导出…」');
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const { canceled, filePath } = await dialog.showSaveDialog(win || undefined, {
       title: '导出文档库',
@@ -574,8 +576,10 @@ function registerIpc() {
     if (stat.size > 50 * 1024 * 1024) throw new Error('备份文件超过 50MB，已拒绝导入');
     const blob = await fs.promises.readFile(filePaths[0]);
     const payload = transfer.decryptExport(blob, passphrase);
+    // 先按原始条数拦截，再清洗：避免恶意文件先消耗一遍 sanitize
+    const rawDocs = payload.library && Array.isArray(payload.library.docs) ? payload.library.docs.length : 0;
+    if (rawDocs > 50000) throw new Error('备份里的文档数量异常，已拒绝导入');
     const incoming = sanitizeLibrary(payload.library);
-    if (incoming.docs.length > 50000) throw new Error('备份里的文档数量异常，已拒绝导入');
     if (mode === 'overwrite') {
       replaceStoreData(incoming);
       return {
@@ -624,12 +628,27 @@ function startUnlocked() {
   if (mainWindow && !mainWindow.isDestroyed()) return;
   // 只有密文、没有 vault.json：不能按"未启用"启动并建空库（用户会以为数据没了）。
   if (!vault.isEnabled() && fs.existsSync(vault.encFile)) {
-    dialog.showErrorBox(
-      '保护配置缺失',
-      `找到了加密数据 ${vault.encFile}，但缺少 vault.json（保护配置）。\n\n请从备份恢复 vault.json 后再启动，不要继续使用空库。`
-    );
-    app.quit();
-    return;
+    // 明文库还在：多半是上一次"启用加密"中途失败留下的孤儿密文。
+    // 改名留档后照常启动，而不是把用户挡在门外（数据仍在 library.json 里）。
+    const plainFile = path.join(DATA_DIR, 'library.json');
+    if (fs.existsSync(plainFile)) {
+      const orphan = `${vault.encFile}.orphan-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+      try {
+        fs.renameSync(vault.encFile, orphan);
+        console.warn(`[vault] 发现孤儿密文，已改名留档：${orphan}`);
+      } catch (err) {
+        dialog.showErrorBox('保护配置缺失', `发现无法识别的 ${vault.encFile}，且改名失败：${err.message}`);
+        app.quit();
+        return;
+      }
+    } else {
+      dialog.showErrorBox(
+        '保护配置缺失',
+        `找到了加密数据 ${vault.encFile}，但缺少 vault.json（保护配置）。\n\n请从备份恢复 vault.json 后再启动，不要继续使用空库。`
+      );
+      app.quit();
+      return;
+    }
   }
   // 保险库已启用但密文文件不在：绝不能当成"全新安装"建空库覆盖——
   // 那会让用户以为数据没了，其实只是文件被移走/同步盘没同步下来。
@@ -735,7 +754,13 @@ function wipePlaintextLibrary() {
   try {
     // session.json 里是最近打开的标签页（同样是隐私数据），启用加密后不能留明文
     names = fs.readdirSync(DATA_DIR).filter(
-      (n) => n === 'library.json' || n.startsWith('library.json.') || n === 'session.json'
+      (n) =>
+        n === 'library.json' ||
+        n.startsWith('library.json.') ||
+        n === 'session.json' ||
+        // 下载记录里也有 URL、文件名和本地路径，属于同一类隐私数据
+        n === 'downloads.json' ||
+        n === 'downloads.json.tmp'
     );
   } catch {
     return;

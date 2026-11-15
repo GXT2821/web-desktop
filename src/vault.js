@@ -86,17 +86,24 @@ function normalizeRecoveryCode(input) {
   return cleaned;
 }
 
+// 元数据是否"可用"：解析成功还不够，字段也必须完整。
+// 备份和回退都以这个为准，避免"能 parse 但没内容"的文件挤掉好备份。
+function metaLooksValid(raw) {
+  if (!raw || !raw.salt || !raw.recovery) return false;
+  if (Array.isArray(raw.tokens)) {
+    return raw.tokens.some((t) => t && t.serial && t.wrappedDek);
+  }
+  return Boolean(raw.token && raw.wrappedDek);
+}
+
 function writeJsonAtomic(file, obj) {
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
-  // 覆盖前留一份 .bak，但只在"当前主文件确实能解析"时才备份：
-  // 主文件已经写坏时再把它复制成 .bak，会把上一份好备份挤掉。
+  // 覆盖前留一份 .bak，但只在"当前主文件字段完整"时才备份：
+  // 主文件已经写坏（哪怕还能 parse）再复制成 .bak，会把上一份好备份挤掉。
   let canBackup = false;
   try {
-    if (fs.existsSync(file)) {
-      JSON.parse(fs.readFileSync(file, 'utf-8'));
-      canBackup = true;
-    }
+    if (fs.existsSync(file)) canBackup = metaLooksValid(JSON.parse(fs.readFileSync(file, 'utf-8')));
   } catch {
     canBackup = false;
   }
@@ -202,7 +209,7 @@ class Vault {
     for (let i = 0; i < candidates.length; i += 1) {
       try {
         const parsed = JSON.parse(fs.readFileSync(candidates[i], 'utf-8'));
-        if (!parsed || !parsed.salt || !parsed.recovery) throw new Error('字段不完整');
+        if (!metaLooksValid(parsed)) throw new Error('字段不完整');
         raw = parsed;
         if (i > 0) console.warn('[vault] vault.json 不可用，已回退到备份');
         break;
@@ -277,6 +284,13 @@ class Vault {
 
   async enroll({ tokenPath, pin, library }) {
     if (this.state !== 'disabled') throw new Error('U盾保护已经启用');
+    // 旧世代残留：vault.json 不在了，但 .bak 可能还是上一套库的元数据。
+    // 留着它会让"主文件损坏时回退"复活旧令牌/旧恢复码，把新库锁死。
+    try {
+      fs.rmSync(`${this.vaultFile}.bak`, { force: true });
+    } catch {
+      /* 删除失败不阻断启用；下次写入也不会覆盖它（字段校验会拒绝） */
+    }
     const session = await this.#openBoundToken(tokenPath, pin);
     const dek = crypto.randomBytes(32);
     const salt = crypto.randomBytes(32);
@@ -307,9 +321,18 @@ class Vault {
       kek.fill(0);
       recKey.fill(0);
 
-      // 先写密文、再写元数据；任何一步失败都不留下"半个保险库"
+      // 先写密文、再写元数据；任何一步失败都不留下"半个保险库"。
+      // 密文同样走 tmp+rename：直接写 library.enc 时磁盘写满会留下半截文件，
+      // 下次启动会被判成"保护配置缺失"而拒绝启动。
       const enc = encryptBuffer(dek, library);
-      fs.writeFileSync(this.encFile, enc, { mode: 0o600 });
+      const tmpEnc = `${this.encFile}.tmp`;
+      fs.writeFileSync(tmpEnc, enc, { mode: 0o600 });
+      try {
+        fs.renameSync(tmpEnc, this.encFile);
+      } catch (err) {
+        fs.rmSync(tmpEnc, { force: true });
+        throw err;
+      }
       try {
         this.#writeMeta(meta);
       } catch (err) {
@@ -604,7 +627,7 @@ class Vault {
     else await this.#verifyPin(pin);
     const library = this.codec().decode(fs.readFileSync(this.encFile));
     if (persist) await persist(library);
-    for (const file of [this.vaultFile, this.encFile, `${this.encFile}.bak`, `${this.vaultFile}.tmp`]) {
+    for (const file of [this.vaultFile, `${this.vaultFile}.bak`, this.encFile, `${this.encFile}.bak`, `${this.vaultFile}.tmp`]) {
       fs.rmSync(file, { force: true });
     }
     this.lock();
@@ -690,7 +713,11 @@ class Vault {
   // 只有路径失效（换盘符/文件被移动）才退回全盘扫描。
   // 任一枚已绑定的令牌在场即算"盾插着"（多枚令牌时，哪个系统的在手边用哪个）
   boundTokenPresent() {
-    if (this.boundTokenPath && fs.existsSync(this.boundTokenPath)) return true;
+    if (this.boundTokenPath && fs.existsSync(this.boundTokenPath)) {
+      // 快路径也要校验序列号：同一个路径被换成另一枚令牌时不能算"盾还在"
+      const info = soft.readTokenInfo(this.boundTokenPath);
+      if (info && (!this.boundSerial || info.serial === this.boundSerial)) return true;
+    }
     let meta;
     try {
       meta = this.#meta();

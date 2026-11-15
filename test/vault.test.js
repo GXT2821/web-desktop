@@ -680,3 +680,67 @@ test('保险库：vault.json 损坏时回退到 .bak，数据仍可解锁', () =
     assert.equal(vault.status().locked, false);
     assert.deepEqual(vault.codec().decode(fs.readFileSync(vault.encFile)), SAMPLE);
   }));
+
+test('保险库：停用后不残留 vault.json.bak（避免回退复活旧世代）', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const first = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
+    // 制造一份 .bak
+    const extraDir = path.join(tokenDir, 'extra');
+    fs.mkdirSync(extraDir);
+    const extra = await soft.createToken(extraDir, '654321');
+    await vault.addToken({ tokenPath: extra.path, pin: '654321' });
+    assert.ok(fs.existsSync(path.join(dataDir, 'vault.json.bak')));
+
+    await vault.disable({ pin: '123456' });
+    assert.equal(fs.existsSync(path.join(dataDir, 'vault.json.bak')), false, '停用后旧备份必须清掉');
+  }));
+
+test('保险库：可解析但字段无效的主文件不会挤掉好备份', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const first = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    await vault.enroll({ tokenPath: first.path, pin: '123456', library: SAMPLE });
+
+    // 先写一次元数据，生成一份有效的 .bak
+    const extraDir = path.join(tokenDir, 'extra');
+    fs.mkdirSync(extraDir);
+    const extra = await soft.createToken(extraDir, '654321');
+    await vault.addToken({ tokenPath: extra.path, pin: '654321' });
+    const bakBefore = fs.readFileSync(path.join(dataDir, 'vault.json.bak'), 'utf-8');
+    assert.ok(JSON.parse(bakBefore).salt);
+
+    // 主文件变成"能 parse、但字段无效"
+    fs.writeFileSync(path.join(dataDir, 'vault.json'), '{"v":2}');
+    const thirdDir = path.join(tokenDir, 'third');
+    fs.mkdirSync(thirdDir);
+    const third = await soft.createToken(thirdDir, 'abcdef');
+    await vault.addToken({ tokenPath: third.path, pin: 'abcdef' });
+
+    const bakAfter = JSON.parse(fs.readFileSync(path.join(dataDir, 'vault.json.bak'), 'utf-8'));
+    assert.equal(bakAfter.salt, JSON.parse(bakBefore).salt, '好备份不能被无效主文件覆盖');
+  }));
+
+test('保险库：启用时密文写失败会清理残留文件，不留下孤儿 library.enc', () =>
+  withEnv(async ({ dataDir, tokenDir }) => {
+    const token = await soft.createToken(tokenDir, '123456');
+    const vault = new Vault(dataDir);
+    const fsNode = require('node:fs');
+    const original = fsNode.writeFileSync;
+    fsNode.writeFileSync = (file, data, opts) => {
+      if (String(file).endsWith('library.enc.tmp')) {
+        const err = new Error('ENOSPC: no space left on device');
+        err.code = 'ENOSPC';
+        throw err;
+      }
+      return original(file, data, opts);
+    };
+    try {
+      await assert.rejects(() => vault.enroll({ tokenPath: token.path, pin: '123456', library: SAMPLE }), /ENOSPC/);
+    } finally {
+      fsNode.writeFileSync = original;
+    }
+    assert.equal(fs.existsSync(path.join(dataDir, 'library.enc')), false, '失败后不应留下半截密文');
+    assert.equal(vault.isEnabled(), false);
+  }));
