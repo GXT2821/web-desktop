@@ -11,9 +11,9 @@ $env:ELECTRON_RUN_AS_NODE = $null
 $root = Split-Path $PSScriptRoot -Parent
 $exeName = '文档库.exe'
 $exePath = Join-Path $InstallDir $exeName
-$iconPath = Join-Path $InstallDir 'icon-app-a.ico'
+$iconPath = Join-Path $InstallDir 'icon-app-d.ico'
 # 快捷方式/卸载项用一个新文件名，绕开 Explorer 按路径缓存的旧图标
-$shortcutIcon = Join-Path $InstallDir 'app-icon-a.ico'
+$shortcutIcon = Join-Path $InstallDir 'app-icon-d.ico'
 
 if (-not (Test-Path $Source)) {
   throw "找不到构建目录：$Source（先执行 npm run build:win，或解压绿色版后指定 -Source）"
@@ -24,7 +24,10 @@ Write-Host "安装到：$InstallDir"
 
 # 停止正在运行的旧版本
 Get-Process '文档库' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 800
+for ($i = 0; $i -lt 30; $i++) {
+  if (-not (Get-Process '文档库' -ErrorAction SilentlyContinue)) { break }
+  Start-Sleep -Milliseconds 300
+}
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 robocopy $Source $InstallDir /E /NFL /NDL /NJH /NJS /NP | Out-Null
