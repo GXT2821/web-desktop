@@ -92,7 +92,7 @@
     "extraResources": [
       {
         "from": "build/icon.ico",
-        "to": "icon.ico"
+        "to": "icon-app.ico"
       }
     ]
   },

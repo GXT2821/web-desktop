@@ -162,14 +162,16 @@ doc-vault/
 
 ## 应用图标
 
-图标使用 **GT 图标包 · C 方案（深色徽章）**：深色圆角徽章 + 铬色 **GT** 字标 + 一道斜向高光，透明背景，小尺寸下也能辨认。
+图标使用 **GT 图标包 · B 方案（深色底 + 渐变 GT）**：深色超椭圆底 + 青（G）/品红（T）渐变字标，GT 约占图标宽度 **74%**，32px 下仍能辨认。
 
-- 画布 1024×1024，内容区约 836×972（占画布 95%），GT 在原 SVG 基础上宽度 ×1.10、高度 ×1.22，并加了轻微辉光，四周只留约 2.5% 安全边距；
-- 原图取自 `GT-icons.zip` 的 `png/GT-icon-C-badge-square-1024.png`，源文件已同步到 `build/icon.svg`；
-- 侧栏左上角的品牌标记仍是 CSS 版渐变方块 + GT（`src/shell.css` 的 `.brand-mark`），与应用图标各自独立。
+- 画布 1024×1024，超椭圆轮廓（n=5，四周留约 3.5% 安全边距）；
+- GT 取自 `GT-icons.zip` 的 `GT-icon-A-gradient`，放大到 74% 宽并带轻微辉光；
+- 源文件在 `build/icon.svg`（超椭圆底 + 渐变字标），产物与它保持一致；
+- 侧栏左上角的品牌标记仍是 CSS 版渐变方块 + GT（`src/shell.css` 的 `.brand-mark`）。
 
-产物：`build/icon.ico`（Windows，16/24/32/48/64/128/256 共 7 个尺寸）、`build/icon.icns`（macOS）、
-`build/icons/*.png`（Linux，16→1024）、`build/icon.png`（1024，开发期窗口图标）、`src/icon.ico`（打包后窗口图标）。
+产物：`build/icon.ico`（Windows，16/24/32/48/64/128/256）、`build/icon.icns`（macOS）、
+`build/icons/*.png`（Linux，16→1024）、`build/icon.png`（1024，开发期窗口图标）、`src/icon.ico`（兜底）；
+打包时另经 `extraResources` 复制为 `resources/icon-app.ico`，供窗口/任务栏图标读取。
 
 > 注意：`scripts/build-icons.js` 仍会生成旧的书签徽章设计，`npm run icons` 会覆盖当前图标。
 > 要保留新图标请勿直接运行，或先修改脚本里的 `CONCEPTS`。
