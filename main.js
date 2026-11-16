@@ -3,7 +3,7 @@
 // 定位：一个「在线文档收藏夹」。链接与元数据存在 userData/library.json，
 // 点开文档在应用内用 <webview> 打开（登录态由 Electron 的持久化 session 保留）。
 
-const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, session, screen, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, session, screen, dialog, powerMonitor, nativeImage } = require('electron');
 const { fileURLToPath } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -98,15 +98,21 @@ const downloads = new Downloads({
 const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
 // 开发期窗口/Dock 图标；打包后由 .app 的 icns、exe 内嵌图标接管（build/ 不随包分发）
 const DEV_ICON = path.join(__dirname, 'build', 'icon.png');
-// 打包版的窗口图标：从 resources/icon.ico 读（extraResources 落盘），
+// 打包版的窗口图标：从 resources/icon-app-f.ico 读（extraResources 落盘），
 // 不能指向 asar 内的路径——nativeImage 不认 asar，读不到时会退回 exe 自带的图标。
-const PACKAGED_ICON = path.join(process.resourcesPath, 'icon-app-f.ico');
-const WINDOW_ICON = app.isPackaged ? PACKAGED_ICON : DEV_ICON;
-// Windows 任务栏按 AppUserModelID 分组和缓存图标；显式设置后用应用自己的图标
+const ICON_PATH = app.isPackaged ? path.join(process.resourcesPath, 'icon-app-f.ico') : DEV_ICON;
+const WINDOW_ICON = nativeImage.createFromPath(ICON_PATH);
+// Windows 任务栏按 AppUserModelID 分组和缓存图标；换一个新 ID，避免复用旧身份下的 Electron 图标
 try {
-  app.setAppUserModelId('com.gt.docvault');
+  app.setAppUserModelId('com.gt.docvault.app');
 } catch {
   /* 非 Windows 平台忽略 */
+}
+if (process.env.DOCVAULT_DEBUG_ICON === '1') {
+  const size = WINDOW_ICON.isEmpty() ? null : WINDOW_ICON.getSize();
+  console.log(
+    `[icon] path=${ICON_PATH} exists=${fs.existsSync(ICON_PATH)} empty=${WINDOW_ICON.isEmpty()} size=${JSON.stringify(size)}`
+  );
 }
 
 // 外壳页面路径：外壳窗口只允许停在这个文件上（见 isShellUrl）
@@ -270,7 +276,7 @@ function createMainWindow() {
     backgroundColor: '#f6f7f9',
     show: false,
     // 窗口图标始终显式指定：打包版用包内 src/icon.ico，开发期用 build/icon.png
-    icon: WINDOW_ICON,
+    icon: WINDOW_ICON.isEmpty() ? undefined : WINDOW_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       webviewTag: true, // 文档在应用内以 <webview> 打开
@@ -346,7 +352,7 @@ function createLockWindow() {
     title: '文档库 · 已锁定',
     backgroundColor: '#f6f7f9',
     show: false,
-    icon: WINDOW_ICON,
+    icon: WINDOW_ICON.isEmpty() ? undefined : WINDOW_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload-lock.js'),
       contextIsolation: true,
