@@ -12,6 +12,8 @@ $root = Split-Path $PSScriptRoot -Parent
 $exeName = '文档库.exe'
 $exePath = Join-Path $InstallDir $exeName
 $iconPath = Join-Path $InstallDir 'icon.ico'
+# 快捷方式/卸载项用一个新文件名，绕开 Explorer 按路径缓存的旧图标
+$shortcutIcon = Join-Path $InstallDir 'app-icon.ico'
 
 if (-not (Test-Path $Source)) {
   throw "找不到构建目录：$Source（先执行 npm run build:win，或解压绿色版后指定 -Source）"
@@ -41,7 +43,10 @@ if (-not $PackagedLauncher) {
 
 # 图标：优先使用仓库里的新图标；绿色版里若没有，就保留打包自带的
 $repoIcon = Join-Path $root 'build\icon.ico'
-if (Test-Path $repoIcon) { Copy-Item $repoIcon $iconPath -Force }
+if (Test-Path $repoIcon) {
+  Copy-Item $repoIcon $iconPath -Force
+  Copy-Item $repoIcon $shortcutIcon -Force
+}
 
 # 卸载脚本（自包含，不依赖仓库）
 $uninstallCmd = @'
@@ -81,7 +86,7 @@ foreach ($lnkPath in $shortcuts) {
   $lnk = $ws.CreateShortcut($lnkPath)
   $lnk.TargetPath = $exePath
   $lnk.WorkingDirectory = $InstallDir
-  $lnk.IconLocation = "$iconPath,0"
+  $lnk.IconLocation = "$shortcutIcon,0"
   $lnk.Description = '文档库 · 在线文档收藏'
   $lnk.Save()
 }
@@ -94,7 +99,7 @@ $pkg = Join-Path $root 'package.json'
 if (Test-Path $pkg) { $version = (Get-Content $pkg -Raw -Encoding UTF8 | ConvertFrom-Json).version }
 Set-ItemProperty $key -Name DisplayName -Value "文档库 $version"
 Set-ItemProperty $key -Name DisplayVersion -Value $version
-Set-ItemProperty $key -Name DisplayIcon -Value $iconPath
+Set-ItemProperty $key -Name DisplayIcon -Value $shortcutIcon
 Set-ItemProperty $key -Name InstallLocation -Value $InstallDir
 Set-ItemProperty $key -Name UninstallString -Value "cmd /c `"$InstallDir\uninstall.cmd`""
 Set-ItemProperty $key -Name Publisher -Value 'guo-tao'

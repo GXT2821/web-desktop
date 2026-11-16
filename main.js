@@ -98,10 +98,16 @@ const downloads = new Downloads({
 const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
 // 开发期窗口/Dock 图标；打包后由 .app 的 icns、exe 内嵌图标接管（build/ 不随包分发）
 const DEV_ICON = path.join(__dirname, 'build', 'icon.png');
-// 打包版的窗口图标：正常安装时 exe/ .app 已内嵌图标，这里再显式设一次是兜底——
-// 绿色部署（启动器是未改动的 electron 二进制，内嵌的是 Electron 默认图标）时靠它才有自己的图标。
-const PACKAGED_ICON = path.join(__dirname, 'src', 'icon.ico');
+// 打包版的窗口图标：从 resources/icon.ico 读（extraResources 落盘），
+// 不能指向 asar 内的路径——nativeImage 不认 asar，读不到时会退回 exe 自带的图标。
+const PACKAGED_ICON = path.join(process.resourcesPath, 'icon.ico');
 const WINDOW_ICON = app.isPackaged ? PACKAGED_ICON : DEV_ICON;
+// Windows 任务栏按 AppUserModelID 分组和缓存图标；显式设置后用应用自己的图标
+try {
+  app.setAppUserModelId('com.gt.docvault');
+} catch {
+  /* 非 Windows 平台忽略 */
+}
 
 // 外壳页面路径：外壳窗口只允许停在这个文件上（见 isShellUrl）
 const SHELL_FILE = path.join(__dirname, 'src', 'shell.html');

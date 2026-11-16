@@ -88,7 +88,13 @@
     "artifactName": "DocVault-${version}-${os}-${arch}.${ext}",
     "portable": {
       "artifactName": "DocVault-${version}-win-x64-portable.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
+    ]
   },
   "license": "MIT",
   "repository": {
