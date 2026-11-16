@@ -167,7 +167,7 @@ doc-vault/
 - 画布 1024×1024；超椭圆（n=5）外框，边框渐变取自品牌青/品红；
 - GT 取自 `GT-icons.zip` 的 `GT-icon-A-gradient`，90% 宽、纵向 ×1.55，32px 下仍清楚；
 - 源文件在 `build/icon.svg`（底 + 边框 + 渐变 GT），产物与它保持一致；
-- 侧栏左上角的品牌标记仍是 CSS 版渐变方块 + GT（`src/shell.css` 的 `.brand-mark`）。
+- 侧栏左上角的品牌标记直接使用应用图标（`src/brand.png`），锁定页和 Android 端同步。
 
 产物：`build/icon.ico`（Windows，16/24/32/48/64/128/256）、`build/icon.icns`（macOS）、
 `build/icons/*.png`（Linux，16→1024）、`build/icon.png`（1024，开发期窗口图标）、`src/icon.ico`（兜底）；

@@ -93,7 +93,9 @@ svg {
 .sidebar {
   width: 276px;
   flex-shrink: 0;
-  transition: width 0.16s ease;
+  overflow: hidden;
+  will-change: width;
+  transition: width 0.18s cubic-bezier(0.2, 0, 0, 1), padding 0.18s cubic-bezier(0.2, 0, 0, 1);
   display: flex;
   flex-direction: column;
   background: var(--sidebar-bg);
@@ -116,22 +118,25 @@ svg {
   align-items: center;
   gap: 10px;
   padding: 0 16px 14px;
+  overflow: hidden;
+  transition: padding 0.18s cubic-bezier(0.2, 0, 0, 1), gap 0.18s cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* 品牌标记：与应用图标同一套色彩（靛蓝渐变 + 白色 GT 字标） */
+/* 品牌标记：直接使用应用图标（src/brand.png），不再手绘 CSS 方块 */
 .brand-mark {
   width: 28px;
   height: 28px;
   flex-shrink: 0;
-  display: grid;
-  place-items: center;
+  overflow: hidden;
   border-radius: 8px;
-  background: linear-gradient(145deg, #8b93ff, #5b54e8 55%, #3b32b8);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  color: #fff;
-  font-size: 12.5px;
-  font-weight: 800;
-  letter-spacing: 0.2px;
+  box-shadow: 0 2px 6px rgba(28, 33, 48, 0.18);
+}
+
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .more-btn {
@@ -149,6 +154,16 @@ svg {
   display: flex;
   flex-direction: column;
   line-height: 1.15;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 折叠/展开时不允许标题换行，否则窄宽度下会被挤成竖排再弹回横排 */
+.brand-text strong,
+.brand-text em {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand-text strong {
@@ -479,6 +494,7 @@ svg {
   flex-direction: column;
   gap: 2px;
   padding: 0 8px 8px;
+  transition: padding 0.18s cubic-bezier(0.2, 0, 0, 1), gap 0.18s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .side-item {
@@ -486,7 +502,9 @@ svg {
   align-items: center;
   gap: 9px;
   width: 100%;
+  overflow: hidden;
   padding: 7px 9px;
+  transition: padding 0.18s cubic-bezier(0.2, 0, 0, 1);
   border: none;
   border-radius: 9px;
   background: transparent;
@@ -555,6 +573,8 @@ svg {
   letter-spacing: 0.4px;
   color: var(--text-3);
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .tree {
@@ -716,6 +736,8 @@ svg {
   font-size: 11.5px;
   line-height: 1.6;
   color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .side-foot button {

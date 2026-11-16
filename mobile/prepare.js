@@ -17,7 +17,7 @@ const srcDir = path.resolve(root, '..', 'src');
 const outDir = path.join(root, 'web');
 
 // 桌面端与 Android 端共用的文件（单一来源，不复制进仓库）
-const SHARED = ['library.js', 'shell.css', 'store-core.js'];
+const SHARED = ['library.js', 'shell.css', 'store-core.js', 'brand.png'];
 
 fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
