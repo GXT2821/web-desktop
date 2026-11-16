@@ -162,16 +162,16 @@ doc-vault/
 
 ## 应用图标
 
-图标采用「文档页即图标」的构图：浅色页面直接铺满超椭圆（内容占画布 93.6%），右上角压着青/品红渐变**书签**，页面中央是深色 **GT** 字标（宽 68.4%、高 19.4%）——没有深色外框和嵌套卡片。
+图标采用「外框 + 大字标」构图：深色超椭圆底，沿轮廓一圈 14px 青/品红渐变**边框**，中间是放大到 **90% 宽**的渐变 **GT**（纵向拉高 55%，占据画面主体）。
 
-- 画布 1024×1024；页面与图标同形，书签 168×300、带 V 形缺口并裁进圆角；
-- GT 取自 `GT-icons.zip` 的 `GT-icon-mono-black`，放大到 68.4% 宽并纵向拉高 35%，避免宽字标在任务栏里被压扁；
-- 源文件在 `build/icon.svg`（页面 + 书签 + GT），产物与它保持一致；
+- 画布 1024×1024；超椭圆（n=5）外框，边框渐变取自品牌青/品红；
+- GT 取自 `GT-icons.zip` 的 `GT-icon-A-gradient`，90% 宽、纵向 ×1.55，32px 下仍清楚；
+- 源文件在 `build/icon.svg`（底 + 边框 + 渐变 GT），产物与它保持一致；
 - 侧栏左上角的品牌标记仍是 CSS 版渐变方块 + GT（`src/shell.css` 的 `.brand-mark`）。
 
 产物：`build/icon.ico`（Windows，16/24/32/48/64/128/256）、`build/icon.icns`（macOS）、
 `build/icons/*.png`（Linux，16→1024）、`build/icon.png`（1024，开发期窗口图标）、`src/icon.ico`（兜底）；
-打包时另经 `extraResources` 复制为 `resources/icon-app-d.ico`，供窗口/任务栏图标读取。
+打包时另经 `extraResources` 复制为 `resources/icon-app-f.ico`，供窗口/任务栏图标读取。
 
 > 注意：`scripts/build-icons.js` 仍会生成旧的书签徽章设计，`npm run icons` 会覆盖当前图标。
 > 要保留新图标请勿直接运行，或先修改脚本里的 `CONCEPTS`。

@@ -100,7 +100,7 @@ const WINDOW_STATE_FILE = path.join(DATA_DIR, 'window-state.json');
 const DEV_ICON = path.join(__dirname, 'build', 'icon.png');
 // 打包版的窗口图标：从 resources/icon.ico 读（extraResources 落盘），
 // 不能指向 asar 内的路径——nativeImage 不认 asar，读不到时会退回 exe 自带的图标。
-const PACKAGED_ICON = path.join(process.resourcesPath, 'icon-app-d.ico');
+const PACKAGED_ICON = path.join(process.resourcesPath, 'icon-app-f.ico');
 const WINDOW_ICON = app.isPackaged ? PACKAGED_ICON : DEV_ICON;
 // Windows 任务栏按 AppUserModelID 分组和缓存图标；显式设置后用应用自己的图标
 try {
