@@ -139,21 +139,17 @@ doc-vault/
 
 ## 应用图标
 
-图标是**方案 A · 书签徽章**：靛蓝渐变方块 + 底部书签缺口 + 白色 **GT** 字标（GT 既是个人标识，也让图标在 48px 以上能直接被认出）。
+图标使用 **GT 图标包 · C 方案（深色徽章）**：深色圆角徽章 + 铬色 **GT** 字标 + 一道斜向高光，透明背景，小尺寸下也能辨认。
 
-- 画布 1024×1024，图形区 824×824（四周留 100 安全边距），轮廓是 **n=5 超椭圆**（贴近 macOS Big Sur 的 squircle，比普通圆角矩形更"顺"）；
-- 主色沿用应用主题的靛蓝 `#8B93FF → #5B54E8 → #3B32B8`，浅色/深色背景下都够清楚；
-- 侧栏左上角的品牌标记是同一套视觉的 CSS 版（渐变方块 + GT），见 `src/shell.css` 的 `.brand-mark`。
+- 画布 1024×1024，内容区约 716×831，四周留安全边距，缩放时不会碰到边缘；
+- 原图取自 `GT-icons.zip` 的 `png/GT-icon-C-badge-square-1024.png`，源文件已同步到 `build/icon.svg`；
+- 侧栏左上角的品牌标记仍是 CSS 版渐变方块 + GT（`src/shell.css` 的 `.brand-mark`），与应用图标各自独立。
 
-重新生成（改了设计后执行，产物会覆盖 `build/`）：
+产物：`build/icon.ico`（Windows，16/24/32/48/64/128/256 共 7 个尺寸）、`build/icon.icns`（macOS）、
+`build/icons/*.png`（Linux，16→1024）、`build/icon.png`（1024，开发期窗口图标）、`src/icon.ico`（打包后窗口图标）。
 
-```bash
-npm run icons
-```
-
-产物：`build/icon.icns`（macOS，含 16→1024 全部 10 个尺寸）、`build/icon.ico`（Windows，7 个尺寸）、`build/icons/*.png`（Linux）、`build/icon.png`（1024，开发期 Dock/窗口图标）、`build/preview.png`（设计评审图：三个方案对比 + 多尺寸观感 + 浅色/深色/Dock 场景）。
-
-想换方案：打开 `scripts/build-icons.js`，把 `CONCEPTS` 里想要的方案标成 `chosen: true`，再跑一次 `npm run icons`。备选方案（B 文档叠层 / C 字标霓虹）的 SVG 也在 `build/concepts/` 里，可以直接拿去改。图标只在打包时用到，`build/` 不会打进应用包。
+> 注意：`scripts/build-icons.js` 仍会生成旧的书签徽章设计，`npm run icons` 会覆盖当前图标。
+> 要保留新图标请勿直接运行，或先修改脚本里的 `CONCEPTS`。
 
 ## 打包
 
