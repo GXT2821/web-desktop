@@ -54,6 +54,29 @@ npm start
 
 > Windows 上如果 PowerShell 拦 `npm.ps1`，请用 `npm.cmd`。
 
+## 绿色版安装 / 卸载（Windows）
+
+绿色版 zip 解压后可以直接运行，也可以"安装"到当前用户（不需要管理员）：
+
+```powershell
+# 安装：复制 dist\win-unpacked 到 %LOCALAPPDATA%\Programs\文档库，
+# 建桌面/开始菜单快捷方式、写卸载项，然后启动
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+
+# 卸载：删程序目录、快捷方式和卸载项；默认保留用户数据
+powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1
+# 连用户数据一起删（谨慎）：
+powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 -RemoveUserData
+```
+
+安装脚本参数：`-Source <构建目录>`、`-InstallDir <目录>`、`-NoLaunch`；
+默认会把打包 exe 换成原版 Electron 启动器，以兼容启用了 Application Control 的机器
+（改写过的 exe 会被策略拦截），需要保留打包 exe 时加 `-PackagedLauncher`。
+
+安装目录里的 `uninstall.cmd` 是自包含卸载器，双击后会询问是否同时删除用户数据。
+
+> 这不是 MSI/NSIS 安装包：没有系统级升级/修复逻辑，但文件位置、快捷方式和"应用和功能"里的卸载项与普通安装一致。
+
 ## 数据存在哪
 
 | 系统 | 路径 |
